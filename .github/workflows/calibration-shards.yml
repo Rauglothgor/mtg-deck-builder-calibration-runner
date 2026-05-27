@@ -1,0 +1,160 @@
+name: Calibration shards
+
+on:
+  workflow_dispatch:
+    inputs:
+      shards:
+        description: "Number of shards to run, up to 25"
+        required: true
+        default: "25"
+      decks_per_shard:
+        description: "Elite decks evaluated by each shard"
+        required: true
+        default: "4"
+      matches:
+        description: "Forge matches per deck"
+        required: true
+        default: "100"
+      attempt_cap:
+        description: "Generation attempts per shard"
+        required: true
+        default: "500"
+
+jobs:
+  shard:
+    name: Shard ${{ matrix.shard }}
+    if: ${{ matrix.shard < fromJSON(inputs.shards) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: deckbuilder
+          POSTGRES_PASSWORD: deckbuilder
+          POSTGRES_DB: deckbuilder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U deckbuilder"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DECKBUILDER_DATABASE_URL: postgresql+psycopg://deckbuilder:deckbuilder@localhost:5432/deckbuilder
+      DECKBUILDER_FORGE_ROOT: ${{ github.workspace }}/.local/forge
+      DECKBUILDER_FORGE_DECKS_DIR: ${{ github.workspace }}/.forge/decks/commander
+      DECKBUILDER_FORGE_BUNDLED_DECK_DIR: ${{ github.workspace }}/.local/forge/res/adventure/Realm of Legends/decks/legends
+      DECKBUILDER_LLM_DISABLED: "true"
+      JAVA_HOME: ${{ github.workspace }}/.local/java/jdk-17
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OS packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bzip2 curl xvfb
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Cache Scryfall bulk data
+        uses: actions/cache@v4
+        with:
+          path: data/raw/scryfall_oracle_cards.json
+          key: scryfall-oracle-cards-v1
+
+      - name: Install Python dependencies
+        run: uv sync --frozen
+
+      - name: Install Java and Forge
+        run: |
+          mkdir -p .local/java .local/forge .forge/decks/commander .cache/deckbuilder
+          if [ ! -x "$JAVA_HOME/bin/java" ]; then
+            curl -L --fail --retry 3 \
+              "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse" \
+              -o .cache/deckbuilder/temurin17-jre.tar.gz
+            rm -rf "$JAVA_HOME"
+            mkdir -p "$JAVA_HOME"
+            tar -xzf .cache/deckbuilder/temurin17-jre.tar.gz -C "$JAVA_HOME" --strip-components=1
+          fi
+          export PATH="$JAVA_HOME/bin:$PATH"
+          echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
+          if [ ! -x "$DECKBUILDER_FORGE_ROOT/forge.sh" ]; then
+            curl -L --fail --retry 3 \
+              "https://github.com/Card-Forge/forge/releases/download/forge-2.0.12/forge-installer-2.0.12.tar.bz2" \
+              -o .cache/deckbuilder/forge-installer-2.0.12.tar.bz2
+            rm -rf "$DECKBUILDER_FORGE_ROOT"
+            mkdir -p "$DECKBUILDER_FORGE_ROOT"
+            tar -xjf .cache/deckbuilder/forge-installer-2.0.12.tar.bz2 -C "$DECKBUILDER_FORGE_ROOT"
+          fi
+          cp "$DECKBUILDER_FORGE_BUNDLED_DECK_DIR/alela.dck" "$DECKBUILDER_FORGE_DECKS_DIR/"
+          cp "$DECKBUILDER_FORGE_BUNDLED_DECK_DIR/atraxa.dck" "$DECKBUILDER_FORGE_DECKS_DIR/"
+          java -version
+
+      - name: Validate code
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy src
+
+      - name: Prepare database and surrogate
+        run: |
+          uv run deckbuilder db init
+          uv run python - <<'PY'
+          from pathlib import Path
+          from deckbuilder.ingest.scryfall import (
+              download_oracle_cards,
+              load_oracle_cards,
+              normalize_card,
+              raw_data_path,
+              upsert_cards,
+          )
+
+          path = raw_data_path()
+          if not path.exists():
+              path = download_oracle_cards()
+          raw_cards = load_oracle_cards(path)
+          rows = [card for item in raw_cards if (card := normalize_card(item)) is not None]
+          print(f"upserted_cards={upsert_cards(rows)}")
+          PY
+          uv run deckbuilder ingest corpus data/raw/atraxa_corpus.csv
+          uv run deckbuilder surrogate fit "Atraxa, Praetors' Voice"
+
+      - name: Forge smoke test
+        run: uv run deckbuilder forge smoke-test
+
+      - name: Run calibration shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          DECKS_PER_SHARD: ${{ inputs.decks_per_shard }}
+          MATCHES: ${{ inputs.matches }}
+          ATTEMPT_CAP: ${{ inputs.attempt_cap }}
+        run: |
+          seed_start=$((42 + SHARD * 10000))
+          mkdir -p data/reports
+          uv run deckbuilder experiment run \
+            --commander "Atraxa, Praetors' Voice" \
+            --n-decks "$DECKS_PER_SHARD" \
+            --matches "$MATCHES" \
+            --opponent alela.dck \
+            --seed-start "$seed_start" \
+            --attempt-cap "$ATTEMPT_CAP" \
+            --output "data/reports/v0_5_calibration_shard_${SHARD}.md"
+
+      - name: Upload shard report
+        uses: actions/upload-artifact@v4
+        with:
+          name: calibration-shard-${{ matrix.shard }}
+          path: data/reports/v0_5_calibration_shard_${{ matrix.shard }}.md

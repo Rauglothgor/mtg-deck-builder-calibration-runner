@@ -1,0 +1,5 @@
+Simulation mode
+Ai(1)-atraxa vs Ai(2)-alela - 1 game of Commander
+Ai(2)-alela has won because Ai(1)-atraxa has less life than 1
+
+Game Result: Game 1 ended in 1423 ms. Ai(2)-alela has won!

@@ -1,0 +1,29 @@
+FROM eclipse-temurin:17-jre
+
+ARG FORGE_TAG=forge-2.0.12
+ARG FORGE_VERSION=2.0.12
+ARG FORGE_ARCHIVE=forge-installer-${FORGE_VERSION}.tar.bz2
+ARG FORGE_URL=https://github.com/Card-Forge/forge/releases/download/${FORGE_TAG}/${FORGE_ARCHIVE}
+
+ENV FORGE_HOME=/opt/forge \
+    FORGE_USER_DIR=/root/.forge \
+    JAVA_OPTS=-Xmx2g
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bzip2 ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR ${FORGE_HOME}
+
+RUN curl -fsSL "${FORGE_URL}" -o /tmp/forge.tar.bz2 \
+    && tar -xjf /tmp/forge.tar.bz2 -C ${FORGE_HOME} \
+    && rm /tmp/forge.tar.bz2 \
+    && mkdir -p ${FORGE_USER_DIR}/decks/commander \
+    && cp "${FORGE_HOME}/res/adventure/Realm of Legends/decks/legends/atraxa.dck" ${FORGE_USER_DIR}/decks/commander/ \
+    && cp "${FORGE_HOME}/res/adventure/Realm of Legends/decks/legends/alela.dck" ${FORGE_USER_DIR}/decks/commander/
+
+COPY docker/forge-entrypoint.sh /usr/local/bin/forge-entrypoint.sh
+RUN chmod +x /usr/local/bin/forge-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/forge-entrypoint.sh"]
+CMD ["--help"]
