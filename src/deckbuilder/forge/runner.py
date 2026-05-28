@@ -11,6 +11,7 @@ from deckbuilder.forge.parser import SimResult, parse_sim_output
 
 CANDIDATE_DECK_NAME = "candidate.dck"
 OPPONENT_DECK_NAME = "opponent.dck"
+FORGE_STARTUP_SECONDS = 180
 SECONDS_PER_MATCH = 60
 
 
@@ -85,7 +86,7 @@ def run_sim(
             cwd=forge_root,
             capture_output=True,
             text=True,
-            timeout=max(SECONDS_PER_MATCH, n_matches * SECONDS_PER_MATCH),
+            timeout=FORGE_STARTUP_SECONDS + n_matches * SECONDS_PER_MATCH,
             check=False,
         )
     finally:
