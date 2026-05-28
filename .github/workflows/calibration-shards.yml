@@ -67,7 +67,7 @@ jobs:
         if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y bzip2 curl xvfb
+          sudo apt-get install -y bzip2 curl xauth xvfb
 
       - name: Install uv
         if: ${{ matrix.shard < fromJSON(inputs.shards) }}

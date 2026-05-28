@@ -101,7 +101,12 @@ def run_sim(
         msg = f"Forge sim exited with code {completed.returncode}. Last output lines:\n{tail}"
         raise RuntimeError(msg)
 
-    result = parse_sim_output(output)
+    try:
+        result = parse_sim_output(output)
+    except ValueError as exc:
+        tail = "\n".join(output.splitlines()[-200:])
+        msg = f"{exc}. Last output lines:\n{tail}"
+        raise RuntimeError(msg) from exc
     if result.matches_played != n_matches:
         msg = f"Forge reported {result.matches_played} results, expected {n_matches}"
         raise RuntimeError(msg)
