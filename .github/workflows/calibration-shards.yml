@@ -23,7 +23,6 @@ on:
 jobs:
   shard:
     name: Shard ${{ matrix.shard }}
-    if: ${{ matrix.shard < fromJSON(inputs.shards) }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -56,29 +55,39 @@ jobs:
       JAVA_HOME: ${{ github.workspace }}/.local/java/jdk-17
 
     steps:
+      - name: Skip inactive shard
+        if: ${{ matrix.shard >= fromJSON(inputs.shards) }}
+        run: echo "Shard ${{ matrix.shard }} is outside requested shard count ${{ inputs.shards }}."
+
       - name: Checkout
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         uses: actions/checkout@v4
 
       - name: Install OS packages
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: |
           sudo apt-get update
           sudo apt-get install -y bzip2 curl xvfb
 
       - name: Install uv
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
 
       - name: Cache Scryfall bulk data
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         uses: actions/cache@v4
         with:
           path: data/raw/scryfall_oracle_cards.json
           key: scryfall-oracle-cards-v1
 
       - name: Install Python dependencies
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: uv sync --frozen
 
       - name: Install Java and Forge
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: |
           mkdir -p .local/java .local/forge .forge/decks/commander .cache/deckbuilder
           if [ ! -x "$JAVA_HOME/bin/java" ]; then
@@ -104,12 +113,14 @@ jobs:
           java -version
 
       - name: Validate code
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: |
           uv run ruff check .
           uv run ruff format --check .
           uv run mypy src
 
       - name: Prepare database and surrogate
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: |
           uv run deckbuilder db init
           uv run python - <<'PY'
@@ -133,9 +144,11 @@ jobs:
           uv run deckbuilder surrogate fit "Atraxa, Praetors' Voice"
 
       - name: Forge smoke test
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: uv run deckbuilder forge smoke-test
 
       - name: Run calibration shard
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         env:
           SHARD: ${{ matrix.shard }}
           DECKS_PER_SHARD: ${{ inputs.decks_per_shard }}
@@ -154,6 +167,7 @@ jobs:
             --output "data/reports/v0_5_calibration_shard_${SHARD}.md"
 
       - name: Upload shard report
+        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         uses: actions/upload-artifact@v4
         with:
           name: calibration-shard-${{ matrix.shard }}
