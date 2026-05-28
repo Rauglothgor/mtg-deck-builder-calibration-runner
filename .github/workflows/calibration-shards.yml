@@ -19,6 +19,10 @@ on:
         description: "Generation attempts per shard"
         required: true
         default: "500"
+      seed_base:
+        description: "Base random seed for this run; change to generate a distinct deck set"
+        required: true
+        default: "42"
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -167,8 +171,9 @@ jobs:
           DECKS_PER_SHARD: ${{ inputs.decks_per_shard }}
           MATCHES: ${{ inputs.matches }}
           ATTEMPT_CAP: ${{ inputs.attempt_cap }}
+          SEED_BASE: ${{ inputs.seed_base }}
         run: |
-          seed_start=$((42 + SHARD * 10000))
+          seed_start=$((SEED_BASE + SHARD * 10000))
           mkdir -p data/reports
           uv run deckbuilder experiment run \
             --commander "Atraxa, Praetors' Voice" \
