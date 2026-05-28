@@ -49,7 +49,7 @@ jobs:
     env:
       DECKBUILDER_DATABASE_URL: postgresql+psycopg://deckbuilder:deckbuilder@localhost:5432/deckbuilder
       DECKBUILDER_FORGE_ROOT: ${{ github.workspace }}/.local/forge
-      DECKBUILDER_FORGE_DECKS_DIR: ${{ github.workspace }}/.forge/decks/commander
+      DECKBUILDER_FORGE_DECKS_DIR: /home/runner/.forge/decks/commander
       DECKBUILDER_FORGE_BUNDLED_DECK_DIR: ${{ github.workspace }}/.local/forge/res/adventure/Realm of Legends/decks/legends
       DECKBUILDER_LLM_DISABLED: "true"
       JAVA_HOME: ${{ github.workspace }}/.local/java/jdk-17
@@ -89,7 +89,7 @@ jobs:
       - name: Install Java and Forge
         if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         run: |
-          mkdir -p .local/java .local/forge .forge/decks/commander .cache/deckbuilder
+          mkdir -p .local/java .local/forge "$DECKBUILDER_FORGE_DECKS_DIR" .cache/deckbuilder
           if [ ! -x "$JAVA_HOME/bin/java" ]; then
             curl -L --fail --retry 3 \
               "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse" \
