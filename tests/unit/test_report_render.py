@@ -55,9 +55,13 @@ def test_render_experiment_report_contains_required_sections(tmp_path: Path) -> 
         "## Summary Metrics",
         "## Decision Recommendation",
         "## Top 10 Adversarial Cases",
+        "## Top 10 Overconfident Cases",
         "## ASCII Scatter",
         "## All Cases",
         "## Recommendation Rationale",
     ]:
         assert heading in text
-    assert "Decision: **frequent_validation**" in text
+    assert "Decision: **pivot**" in text
+    assert "Mean calibration bias" in text
+    assert "Overconfidence rate > 0.20" in text
+    assert "| Deck ID | Predicted | Actual | Bias | Deviation |" in text

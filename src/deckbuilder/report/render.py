@@ -10,6 +10,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from deckbuilder.db.models import ExperimentRun
+from deckbuilder.experiment.metrics import CalibrationReport, compute_calibration
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,8 +30,16 @@ class ExperimentCase:
         return abs(self.predicted_win_rate - self.actual_win_rate)
 
     @property
+    def calibration_bias(self) -> float:
+        return self.predicted_win_rate - self.actual_win_rate
+
+    @property
     def is_adversarial(self) -> bool:
         return self.predicted_win_rate >= 0.70 and self.actual_win_rate < 0.35
+
+    @property
+    def is_overconfident(self) -> bool:
+        return self.calibration_bias > 0.20
 
 
 def _template_environment() -> Environment:
@@ -77,6 +86,51 @@ def _top_adversarial_cases(cases: list[ExperimentCase], limit: int = 10) -> list
     return ranked[:limit]
 
 
+def _top_overconfident_cases(cases: list[ExperimentCase], limit: int = 10) -> list[ExperimentCase]:
+    ranked = [case for case in cases if case.is_overconfident]
+    ranked.sort(
+        key=lambda case: (
+            -case.calibration_bias,
+            -case.predicted_win_rate,
+            case.generated_deck_id,
+        )
+    )
+    return ranked[:limit]
+
+
+def _pairs_from_cases(cases: list[ExperimentCase]) -> list[tuple[float, float]]:
+    return [(case.predicted_win_rate, case.actual_win_rate) for case in cases]
+
+
+def _summary_from_cases(
+    experiment_run: ExperimentRun,
+    cases: list[ExperimentCase],
+) -> CalibrationReport:
+    if cases:
+        return compute_calibration(_pairs_from_cases(cases))
+    return CalibrationReport(
+        pair_count=0,
+        mean_absolute_deviation=experiment_run.mean_absolute_deviation or 0.0,
+        max_deviation=experiment_run.max_deviation or 0.0,
+        mean_calibration_bias=0.0,
+        overconfidence_rate_20=0.0,
+        overconfidence_rate_30=0.0,
+        brier_score=0.0,
+        adversarial_rate=experiment_run.adversarial_rate or 0.0,
+        decision="proceed",
+    )
+
+
+def _decision_from_summary(
+    experiment_run: ExperimentRun,
+    calibration: CalibrationReport,
+    cases: list[ExperimentCase],
+) -> str:
+    if cases:
+        return calibration.decision
+    return experiment_run.decision or calibration.decision
+
+
 def render_experiment_report(
     experiment_run: ExperimentRun,
     cases: list[ExperimentCase],
@@ -86,6 +140,8 @@ def render_experiment_report(
     """Render a markdown calibration report and write it to disk."""
     environment = _template_environment()
     template = environment.get_template("calibration.md.j2")
+    calibration = _summary_from_cases(experiment_run, cases)
+    decision = _decision_from_summary(experiment_run, calibration, cases)
     rendered = template.render(
         commander_name=commander_name,
         experiment_run=experiment_run,
@@ -100,13 +156,18 @@ def render_experiment_report(
             "completed_at": _format_datetime(experiment_run.completed_at),
         },
         summary={
-            "mean_absolute_deviation": experiment_run.mean_absolute_deviation,
-            "max_deviation": experiment_run.max_deviation,
-            "adversarial_rate": experiment_run.adversarial_rate,
-            "case_count": len(cases),
+            "mean_absolute_deviation": calibration.mean_absolute_deviation,
+            "max_deviation": calibration.max_deviation,
+            "mean_calibration_bias": calibration.mean_calibration_bias,
+            "overconfidence_rate_20": calibration.overconfidence_rate_20,
+            "overconfidence_rate_30": calibration.overconfidence_rate_30,
+            "brier_score": calibration.brier_score,
+            "adversarial_rate": calibration.adversarial_rate,
+            "case_count": calibration.pair_count,
         },
-        decision=experiment_run.decision or "n/a",
+        decision=decision,
         top_adversarial_cases=_top_adversarial_cases(cases),
+        top_overconfident_cases=_top_overconfident_cases(cases),
         all_cases=cases,
         ascii_scatter=_ascii_scatter(cases),
     )
@@ -122,6 +183,8 @@ def build_report_context(
     commander_name: str,
 ) -> dict[str, Any]:
     """Return the context pieces used by the markdown report template."""
+    calibration = _summary_from_cases(experiment_run, cases)
+    decision = _decision_from_summary(experiment_run, calibration, cases)
     return {
         "metadata": {
             "run_id": str(experiment_run.id),
@@ -132,11 +195,17 @@ def build_report_context(
             "retry_count": experiment_run.retry_count,
         },
         "summary": {
-            "mean_absolute_deviation": experiment_run.mean_absolute_deviation,
-            "max_deviation": experiment_run.max_deviation,
-            "adversarial_rate": experiment_run.adversarial_rate,
+            "mean_absolute_deviation": calibration.mean_absolute_deviation,
+            "max_deviation": calibration.max_deviation,
+            "mean_calibration_bias": calibration.mean_calibration_bias,
+            "overconfidence_rate_20": calibration.overconfidence_rate_20,
+            "overconfidence_rate_30": calibration.overconfidence_rate_30,
+            "brier_score": calibration.brier_score,
+            "adversarial_rate": calibration.adversarial_rate,
+            "case_count": calibration.pair_count,
         },
-        "decision": experiment_run.decision,
+        "decision": decision,
         "top_adversarial_cases": _top_adversarial_cases(cases),
+        "top_overconfident_cases": _top_overconfident_cases(cases),
         "ascii_scatter": _ascii_scatter(cases),
     }

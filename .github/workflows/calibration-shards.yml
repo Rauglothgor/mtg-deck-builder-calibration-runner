@@ -8,17 +8,29 @@ on:
         required: true
         default: "25"
       decks_per_shard:
-        description: "Elite decks evaluated by each shard"
+        description: "Decks evaluated by each shard"
         required: true
-        default: "4"
+        default: "5"
       matches:
         description: "Forge matches per deck"
         required: true
         default: "100"
       attempt_cap:
-        description: "Generation attempts per shard"
+        description: "Elite mode generation attempts per shard"
         required: true
         default: "500"
+      sampling_mode:
+        description: "elite or score-bands"
+        required: true
+        default: "score-bands"
+      candidate_pool_size:
+        description: "Score-band mode candidate pool size per shard"
+        required: true
+        default: "100"
+      band_count:
+        description: "Score-band mode rank bands per shard"
+        required: true
+        default: "5"
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -77,6 +89,7 @@ jobs:
         if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         uses: astral-sh/setup-uv@v6
         with:
+          version: "0.9.2"
           enable-cache: true
 
       - name: Cache Scryfall bulk data
@@ -167,21 +180,39 @@ jobs:
           DECKS_PER_SHARD: ${{ inputs.decks_per_shard }}
           MATCHES: ${{ inputs.matches }}
           ATTEMPT_CAP: ${{ inputs.attempt_cap }}
+          SAMPLING_MODE: ${{ inputs.sampling_mode }}
+          CANDIDATE_POOL_SIZE: ${{ inputs.candidate_pool_size }}
+          BAND_COUNT: ${{ inputs.band_count }}
         run: |
           seed_start=$((42 + SHARD * 10000))
           mkdir -p data/reports
-          uv run deckbuilder experiment run \
-            --commander "Atraxa, Praetors' Voice" \
-            --n-decks "$DECKS_PER_SHARD" \
-            --matches "$MATCHES" \
-            --opponent alela.dck \
-            --seed-start "$seed_start" \
-            --attempt-cap "$ATTEMPT_CAP" \
-            --output "data/reports/v0_5_calibration_shard_${SHARD}.md"
+          if [ "$SAMPLING_MODE" = "score-bands" ]; then
+            uv run deckbuilder experiment run-score-bands \
+              --commander "Atraxa, Praetors' Voice" \
+              --n-decks "$DECKS_PER_SHARD" \
+              --matches "$MATCHES" \
+              --opponent alela.dck \
+              --seed-start "$seed_start" \
+              --candidate-pool-size "$CANDIDATE_POOL_SIZE" \
+              --band-count "$BAND_COUNT" \
+              --output "data/reports/v0_5_calibration_shard_${SHARD}.md"
+          elif [ "$SAMPLING_MODE" = "elite" ]; then
+            uv run deckbuilder experiment run \
+              --commander "Atraxa, Praetors' Voice" \
+              --n-decks "$DECKS_PER_SHARD" \
+              --matches "$MATCHES" \
+              --opponent alela.dck \
+              --seed-start "$seed_start" \
+              --attempt-cap "$ATTEMPT_CAP" \
+              --output "data/reports/v0_5_calibration_shard_${SHARD}.md"
+          else
+            echo "Unsupported sampling_mode=$SAMPLING_MODE" >&2
+            exit 1
+          fi
 
       - name: Upload shard report
         if: ${{ matrix.shard < fromJSON(inputs.shards) }}
         uses: actions/upload-artifact@v4
         with:
           name: calibration-shard-${{ matrix.shard }}
-          path: data/reports/v0_5_calibration_shard_${{ matrix.shard }}.md
+          path: data/reports/v0_5_calibration_shard_${{ matrix.shard }}.*

@@ -12,6 +12,7 @@ CASE_RE = re.compile(
     r"^\| `(?P<deck_id>[^`]+)` \| "
     r"(?P<predicted>[0-9.]+) \| "
     r"(?P<actual>[0-9.]+) \| "
+    r"(?:(?P<bias>-?[0-9.]+) \| )?"
     r"(?P<deviation>[0-9.]+) \|$"
 )
 
@@ -48,6 +49,10 @@ def main() -> None:
     print(f"cases={len(pairs)}")
     print(f"mean_absolute_deviation={calibration.mean_absolute_deviation:.6f}")
     print(f"max_deviation={calibration.max_deviation:.6f}")
+    print(f"mean_calibration_bias={calibration.mean_calibration_bias:.6f}")
+    print(f"overconfidence_rate_20={calibration.overconfidence_rate_20:.6f}")
+    print(f"overconfidence_rate_30={calibration.overconfidence_rate_30:.6f}")
+    print(f"brier_score={calibration.brier_score:.6f}")
     print(f"adversarial_rate={calibration.adversarial_rate:.6f}")
     print(f"decision={calibration.decision}")
 

@@ -43,14 +43,21 @@ Publish this repository as public, then run:
 
 Recommended full calibration inputs:
 
-- `shards`: `25`
-- `decks_per_shard`: `4`
+- `shards`: `20`
+- `decks_per_shard`: `5`
 - `matches`: `100`
+- `sampling_mode`: `score-bands`
+- `candidate_pool_size`: `100`
+- `band_count`: `5`
 - `attempt_cap`: `500`
 
-That evaluates 100 generated decks total. The workflow uses a different `--seed-start` per shard to avoid duplicate generated decks.
+That evaluates 100 generated decks total. Each shard generates a candidate pool, sorts it by
+surrogate score, splits it into rank-based score bands, and simulates one deck from each
+band. The workflow uses a different `--seed-start` per shard to avoid duplicate generated
+decks.
 
-Each shard uploads one markdown artifact named `calibration-shard-N`.
+Each shard uploads a markdown report and, in score-band mode, a `.selection.csv` manifest
+with the selected deck ID, seed, score band, band score bounds, and predicted score.
 
 ## What Each Shard Does
 

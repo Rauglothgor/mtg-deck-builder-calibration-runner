@@ -10,7 +10,7 @@ from alembic.config import Config
 from deckbuilder.config import get_settings
 from deckbuilder.db.session import reset_database
 from deckbuilder.embedding.encoder import MODEL_NAME, embed_all_cards, nearest_neighbors
-from deckbuilder.experiment.orchestrator import run_experiment
+from deckbuilder.experiment.orchestrator import run_experiment, run_score_band_experiment
 from deckbuilder.forge.runner import run_sim
 from deckbuilder.ingest.archidekt import collect_archidekt_corpus
 from deckbuilder.ingest.corpus import ingest_corpus, write_corpus_ingest_report
@@ -210,6 +210,52 @@ def experiment_run_command(
         output=output,
         seed_start=seed_start,
         attempt_cap=attempt_cap,
+    )
+    typer.echo(f"experiment_run_id={outcome.experiment_run_id}")
+    typer.echo(f"decision={outcome.calibration.decision}")
+    typer.echo(f"retry_count={outcome.retry_count}")
+    typer.echo(f"report_path={outcome.report_path}")
+
+
+@experiment_app.command("run-score-bands")
+def experiment_run_score_bands_command(
+    commander: Annotated[str, typer.Option(help="Commander name to evaluate.")],
+    n_decks: Annotated[
+        int,
+        typer.Option("--n-decks", help="Number of score-band decks to evaluate."),
+    ],
+    matches: Annotated[int, typer.Option(help="Matches per deck.")],
+    opponent: Annotated[
+        str,
+        typer.Option(help="Opponent deck path or bundled deck filename."),
+    ] = "alela.dck",
+    output: Annotated[
+        Path,
+        typer.Option(help="Markdown report output path."),
+    ] = Path("/tmp/deckbuilder-score-band-calibration.md"),
+    seed_start: Annotated[
+        int,
+        typer.Option("--seed-start", help="First generation seed for this run or shard."),
+    ] = 42,
+    candidate_pool_size: Annotated[
+        int,
+        typer.Option(help="Generated candidate pool size before band selection."),
+    ] = 100,
+    band_count: Annotated[
+        int,
+        typer.Option(help="Number of rank-based score bands to sample from."),
+    ] = 5,
+) -> None:
+    """Run calibration with rank-based surrogate score-band sampling."""
+    outcome = run_score_band_experiment(
+        commander_name=commander,
+        n_decks=n_decks,
+        matches=matches,
+        opponent=opponent,
+        output=output,
+        seed_start=seed_start,
+        candidate_pool_size=candidate_pool_size,
+        band_count=band_count,
     )
     typer.echo(f"experiment_run_id={outcome.experiment_run_id}")
     typer.echo(f"decision={outcome.calibration.decision}")

@@ -13,6 +13,10 @@
 ## Summary Metrics
 - Mean absolute deviation: `{{ '%.4f'|format(summary.mean_absolute_deviation or 0.0) }}`
 - Max deviation: `{{ '%.4f'|format(summary.max_deviation or 0.0) }}`
+- Mean calibration bias: `{{ '%.4f'|format(summary.mean_calibration_bias or 0.0) }}`
+- Overconfidence rate > 0.20: `{{ '%.4f'|format(summary.overconfidence_rate_20 or 0.0) }}`
+- Overconfidence rate > 0.30: `{{ '%.4f'|format(summary.overconfidence_rate_30 or 0.0) }}`
+- Brier score: `{{ '%.4f'|format(summary.brier_score or 0.0) }}`
 - Adversarial rate: `{{ '%.4f'|format(summary.adversarial_rate or 0.0) }}`
 - Cases evaluated: `{{ summary.case_count }}`
 
@@ -30,19 +34,30 @@ Decision: **{{ decision }}**
 No adversarial cases.
 {% endif %}
 
+## Top 10 Overconfident Cases
+{% if top_overconfident_cases %}
+| Deck ID | Predicted | Actual | Bias | W-L-D | Opponent |
+|---|---:|---:|---:|---:|---|
+{% for case in top_overconfident_cases %}
+| `{{ case.generated_deck_id }}` | {{ '%.3f'|format(case.predicted_win_rate) }} | {{ '%.3f'|format(case.actual_win_rate) }} | {{ '%.3f'|format(case.calibration_bias) }} | {{ case.wins }}-{{ case.losses }}-{{ case.draws }} | {{ case.opponent_deck_name }} |
+{% endfor %}
+{% else %}
+No cases exceeded the 0.20 overconfidence threshold.
+{% endif %}
+
 ## ASCII Scatter
 ```text
 {{ ascii_scatter }}
 ```
 
 ## All Cases
-| Deck ID | Predicted | Actual | Deviation |
-|---|---:|---:|---:|
+| Deck ID | Predicted | Actual | Bias | Deviation |
+|---|---:|---:|---:|---:|
 {% for case in all_cases %}
-| `{{ case.generated_deck_id }}` | {{ '%.3f'|format(case.predicted_win_rate) }} | {{ '%.3f'|format(case.actual_win_rate) }} | {{ '%.3f'|format(case.deviation) }} |
+| `{{ case.generated_deck_id }}` | {{ '%.3f'|format(case.predicted_win_rate) }} | {{ '%.3f'|format(case.actual_win_rate) }} | {{ '%.3f'|format(case.calibration_bias) }} | {{ '%.3f'|format(case.deviation) }} |
 {% endfor %}
 
 ## Recommendation Rationale
-- `proceed`: adversarial rate < 0.10
-- `frequent_validation`: adversarial rate between 0.10 and 0.30 inclusive
-- `pivot`: adversarial rate > 0.30
+- `proceed`: adversarial rate < 0.10, mean absolute deviation <= 0.10, and overconfidence rate > 0.20 <= 0.20
+- `frequent_validation`: adversarial rate between 0.10 and 0.30 inclusive, mean absolute deviation > 0.10, or overconfidence rate > 0.20 > 0.20
+- `pivot`: adversarial rate > 0.30, mean absolute deviation > 0.25, or overconfidence rate > 0.20 > 0.50
