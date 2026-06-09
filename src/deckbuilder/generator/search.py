@@ -165,7 +165,12 @@ def _initialize_deck(
             current_counts = count_roles(_current_cards(deck_ids, by_id), commander.name)
             if current_counts[role] >= ROLE_QUOTAS[role].minimum:
                 break
-            available_cards = [card for card in by_role[role] if card.oracle_id not in deck_ids]
+            available_cards = [
+                card
+                for card in by_role[role]
+                if card.oracle_id not in deck_ids
+                and _can_add_without_role_overflow(deck_ids, card, by_id, commander.name)
+            ]
             if not available_cards:
                 msg = f"Initialization ran out of available candidates for role {role}"
                 raise RuntimeError(msg)
