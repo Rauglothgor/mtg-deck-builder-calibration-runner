@@ -57,3 +57,4 @@ def test_generate_deck_acceptance_checks() -> None:
     assert all(set(card.color_identity).issubset({"W", "U", "B", "G"}) for card in cards)
     for role, quota in ROLE_QUOTAS.items():
         assert counts[role] >= quota.minimum
+        assert counts[role] <= quota.maximum

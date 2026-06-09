@@ -21,7 +21,6 @@ from deckbuilder.generator.roles import (
     CardProfile,
     count_roles,
     detect_roles,
-    meets_role_minimums,
     primary_role,
 )
 from deckbuilder.surrogate.awr import (
@@ -87,6 +86,25 @@ def _score_sort_key(
 
 def _current_cards(deck_ids: set[UUID], by_id: dict[UUID, CardProfile]) -> list[CardProfile]:
     return [by_id[oracle_id] for oracle_id in sorted(deck_ids, key=str)]
+
+
+def _meets_role_constraints(cards: list[CardProfile], commander_name: str) -> bool:
+    counts = count_roles(cards, commander_name)
+    return all(
+        quota.minimum <= counts[role] <= quota.maximum for role, quota in ROLE_QUOTAS.items()
+    )
+
+
+def _can_add_without_role_overflow(
+    deck_ids: set[UUID],
+    candidate: CardProfile,
+    by_id: dict[UUID, CardProfile],
+    commander_name: str,
+) -> bool:
+    trial_ids = set(deck_ids)
+    trial_ids.add(candidate.oracle_id)
+    counts = count_roles(_current_cards(trial_ids, by_id), commander_name)
+    return all(counts[role] <= quota.maximum for role, quota in ROLE_QUOTAS.items())
 
 
 def _init_temperature() -> float:
@@ -160,7 +178,13 @@ def _initialize_deck(
             deck_ids.add(chosen_card.oracle_id)
 
     while len(deck_ids) < TARGET_DECK_SIZE:
-        available_flex = [card for card in by_role[THEME_FLEX] if card.oracle_id not in deck_ids]
+        available_flex = [
+            card
+            for card in by_role[THEME_FLEX]
+            if card.oracle_id not in deck_ids
+            and LANDS not in detect_roles(card, commander.name)
+            and _can_add_without_role_overflow(deck_ids, card, by_id, commander.name)
+        ]
         if not available_flex:
             msg = "Initialization ran out of available flex candidates"
             raise RuntimeError(msg)
@@ -170,8 +194,8 @@ def _initialize_deck(
     if len(deck_ids) != TARGET_DECK_SIZE:
         msg = f"Initialization failed to reach {TARGET_DECK_SIZE} unique cards; got {len(deck_ids)}"
         raise RuntimeError(msg)
-    if not meets_role_minimums(_current_cards(deck_ids, by_id), commander.name):
-        msg = "Initialized deck does not satisfy role minimums"
+    if not _meets_role_constraints(_current_cards(deck_ids, by_id), commander.name):
+        msg = "Initialized deck does not satisfy role constraints"
         raise RuntimeError(msg)
     return deck_ids
 
@@ -199,7 +223,7 @@ def _propose_swap(
         trial_ids = set(deck_ids)
         trial_ids.remove(remove_card.oracle_id)
         trial_ids.add(replacement.oracle_id)
-        if not meets_role_minimums(_current_cards(trial_ids, by_id), commander_name):
+        if not _meets_role_constraints(_current_cards(trial_ids, by_id), commander_name):
             continue
         return remove_card.oracle_id, replacement.oracle_id
     return None
@@ -270,8 +294,8 @@ def generate_deck_with_stats(
     if len(best_ids) != TARGET_DECK_SIZE:
         msg = f"Generated deck has {len(best_ids)} cards instead of {TARGET_DECK_SIZE}"
         raise RuntimeError(msg)
-    if not meets_role_minimums(final_cards, commander.name):
-        msg = "Generated deck failed role minimums after local search"
+    if not _meets_role_constraints(final_cards, commander.name):
+        msg = "Generated deck failed role constraints after local search"
         raise RuntimeError(msg)
     if not all(
         set(card.color_identity).issubset(set(commander.color_identity)) for card in final_cards
