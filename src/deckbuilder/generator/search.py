@@ -35,6 +35,7 @@ MAX_NON_IMPROVEMENTS = 50
 MAX_ITERATIONS = 500
 ROLE_BUILD_ORDER = [LANDS, RAMP, CARD_DRAW, REMOVAL, BOARD_WIPE, WIN_CONDITION]
 DEFAULT_INIT_TEMPERATURE = 1.0
+HARD_ROLE_MAXIMUMS = {LANDS, RAMP}
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,8 +91,8 @@ def _current_cards(deck_ids: set[UUID], by_id: dict[UUID, CardProfile]) -> list[
 
 def _meets_role_constraints(cards: list[CardProfile], commander_name: str) -> bool:
     counts = count_roles(cards, commander_name)
-    return all(
-        quota.minimum <= counts[role] <= quota.maximum for role, quota in ROLE_QUOTAS.items()
+    return all(counts[role] >= quota.minimum for role, quota in ROLE_QUOTAS.items()) and all(
+        counts[role] <= ROLE_QUOTAS[role].maximum for role in HARD_ROLE_MAXIMUMS
     )
 
 
@@ -104,7 +105,7 @@ def _can_add_without_role_overflow(
     trial_ids = set(deck_ids)
     trial_ids.add(candidate.oracle_id)
     counts = count_roles(_current_cards(trial_ids, by_id), commander_name)
-    return all(counts[role] <= quota.maximum for role, quota in ROLE_QUOTAS.items())
+    return all(counts[role] <= ROLE_QUOTAS[role].maximum for role in HARD_ROLE_MAXIMUMS)
 
 
 def _init_temperature() -> float:

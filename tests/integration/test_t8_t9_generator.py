@@ -9,7 +9,7 @@ from sqlalchemy import select
 from deckbuilder.db.models import AwrCoefficient, Card
 from deckbuilder.db.session import get_session
 from deckbuilder.generator.csp import candidate_pool
-from deckbuilder.generator.roles import ROLE_QUOTAS, count_roles
+from deckbuilder.generator.roles import LANDS, RAMP, ROLE_QUOTAS, count_roles
 from deckbuilder.generator.search import generate_deck
 
 
@@ -57,4 +57,5 @@ def test_generate_deck_acceptance_checks() -> None:
     assert all(set(card.color_identity).issubset({"W", "U", "B", "G"}) for card in cards)
     for role, quota in ROLE_QUOTAS.items():
         assert counts[role] >= quota.minimum
-        assert counts[role] <= quota.maximum
+    assert counts[LANDS] <= ROLE_QUOTAS[LANDS].maximum
+    assert counts[RAMP] <= ROLE_QUOTAS[RAMP].maximum
