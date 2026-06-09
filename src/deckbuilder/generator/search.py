@@ -36,6 +36,7 @@ MAX_ITERATIONS = 500
 ROLE_BUILD_ORDER = [LANDS, RAMP, CARD_DRAW, REMOVAL, BOARD_WIPE, WIN_CONDITION]
 DEFAULT_INIT_TEMPERATURE = 1.0
 HARD_ROLE_MAXIMUMS = {LANDS, RAMP}
+FLEX_CANDIDATE_LIMIT = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,13 +184,18 @@ def _initialize_deck(
             )
             deck_ids.add(chosen_card.oracle_id)
 
+    flex_pool = [
+        card for card in by_role[THEME_FLEX] if LANDS not in detect_roles(card, commander.name)
+    ]
+    flex_pool.sort(key=lambda card: _score_sort_key(card, coefficients))
+    flex_pool = flex_pool[:FLEX_CANDIDATE_LIMIT]
+
     while len(deck_ids) < TARGET_DECK_SIZE:
         current_counts = count_roles(_current_cards(deck_ids, by_id), commander.name)
         available_flex = [
             card
-            for card in by_role[THEME_FLEX]
+            for card in flex_pool
             if card.oracle_id not in deck_ids
-            and LANDS not in detect_roles(card, commander.name)
             and _can_add_without_role_overflow(card, current_counts, commander.name)
         ]
         if not available_flex:
