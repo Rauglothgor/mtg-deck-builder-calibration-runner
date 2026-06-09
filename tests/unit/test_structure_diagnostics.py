@@ -2,9 +2,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from deckbuilder.experiment.structure import (
+    DeckStructureDiagnostics,
     StructureCard,
     analyze_structure_cards,
     expected_compounded_mana_spent,
+    structural_adjusted_score,
+    structural_score_penalty,
     structure_manifest_row,
     write_structure_manifest,
 )
@@ -84,3 +87,47 @@ def test_write_structure_manifest(tmp_path: Path) -> None:
     assert "expected_compounded_mana_spent" in text
     assert "predicted_win_rate" in text
     assert "0.75" in text
+
+
+def test_structural_score_penalty_flags_extreme_ramp_pile() -> None:
+    diagnostics = DeckStructureDiagnostics(
+        card_count=99,
+        land_count=48,
+        nonland_count=51,
+        ramp_count=38,
+        card_draw_count=8,
+        removal_count=6,
+        board_wipe_count=2,
+        win_condition_count=5,
+        average_nonland_cmc=4.2,
+        median_nonland_cmc=4.0,
+        low_curve_nonland_count=8,
+        high_curve_nonland_count=15,
+        expected_compounded_mana_spent=55.0,
+    )
+
+    penalty = structural_score_penalty(diagnostics)
+
+    assert penalty == 0.65
+    assert structural_adjusted_score(1.0, diagnostics) == 0.35
+
+
+def test_structural_score_penalty_leaves_plausible_shell_near_raw_score() -> None:
+    diagnostics = DeckStructureDiagnostics(
+        card_count=99,
+        land_count=37,
+        nonland_count=62,
+        ramp_count=14,
+        card_draw_count=12,
+        removal_count=10,
+        board_wipe_count=3,
+        win_condition_count=8,
+        average_nonland_cmc=3.1,
+        median_nonland_cmc=3.0,
+        low_curve_nonland_count=18,
+        high_curve_nonland_count=7,
+        expected_compounded_mana_spent=64.0,
+    )
+
+    assert structural_score_penalty(diagnostics) == 0.0
+    assert structural_adjusted_score(0.82, diagnostics) == 0.82

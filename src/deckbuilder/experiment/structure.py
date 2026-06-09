@@ -82,6 +82,45 @@ class DeckStructureDiagnostics:
     expected_compounded_mana_spent: float
 
 
+def structural_score_penalty(diagnostics: DeckStructureDiagnostics) -> float:
+    """Return a bounded score penalty for structurally suspicious decks.
+
+    The first calibration pass showed large overconfidence in decks with
+    extreme land/ramp density and high curves. This penalty is intentionally
+    simple and deterministic so it can be audited in calibration manifests.
+    """
+    penalty = 0.0
+
+    if diagnostics.land_count < 34:
+        penalty += (34 - diagnostics.land_count) * 0.04
+    if diagnostics.land_count > 40:
+        penalty += (diagnostics.land_count - 40) * 0.04
+
+    if diagnostics.ramp_count > 24:
+        penalty += (diagnostics.ramp_count - 24) * 0.015
+    if diagnostics.card_draw_count < 10:
+        penalty += (10 - diagnostics.card_draw_count) * 0.025
+    if diagnostics.removal_count < 8:
+        penalty += (8 - diagnostics.removal_count) * 0.025
+
+    if diagnostics.high_curve_nonland_count > 10:
+        penalty += (diagnostics.high_curve_nonland_count - 10) * 0.02
+    if diagnostics.average_nonland_cmc > 3.8:
+        penalty += (diagnostics.average_nonland_cmc - 3.8) * 0.08
+    if diagnostics.expected_compounded_mana_spent < 58:
+        penalty += (58 - diagnostics.expected_compounded_mana_spent) * 0.01
+
+    return min(0.65, max(0.0, penalty))
+
+
+def structural_adjusted_score(
+    predicted_win_rate: float,
+    diagnostics: DeckStructureDiagnostics,
+) -> float:
+    """Adjust a raw surrogate score for selection without changing calibration labels."""
+    return min(1.0, max(0.0, predicted_win_rate - structural_score_penalty(diagnostics)))
+
+
 def _text_is_ramp(oracle_text: str) -> bool:
     text = oracle_text.lower()
     return (

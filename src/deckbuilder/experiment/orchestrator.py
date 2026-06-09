@@ -25,7 +25,10 @@ from deckbuilder.db.models import (
 from deckbuilder.db.session import get_session
 from deckbuilder.experiment.metrics import CalibrationReport, compute_calibration
 from deckbuilder.experiment.structure import (
+    DeckStructureDiagnostics,
     analyze_deck_structure,
+    structural_adjusted_score,
+    structural_score_penalty,
     structure_manifest_row,
     write_structure_manifest,
 )
@@ -64,6 +67,9 @@ class CandidateDeck:
     seed: int
     card_oracle_ids: list[UUID]
     predicted_win_rate: float
+    selection_score: float | None = None
+    structure_penalty: float = 0.0
+    diagnostics: DeckStructureDiagnostics | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,9 +79,20 @@ class SelectedCandidateDeck:
     seed: int
     card_oracle_ids: list[UUID]
     predicted_win_rate: float
+    selection_score: float
+    structure_penalty: float
     score_band: int
     band_min_score: float
     band_max_score: float
+    diagnostics: DeckStructureDiagnostics | None = None
+
+
+def _candidate_selection_score(candidate: CandidateDeck) -> float:
+    return (
+        candidate.selection_score
+        if candidate.selection_score is not None
+        else candidate.predicted_win_rate
+    )
 
 
 def _resolve_commander(session: Session, commander_name: str) -> UUID:
@@ -252,7 +269,7 @@ def _select_score_band_candidates(
         msg = f"Need at least {n_decks} candidates, got {len(candidates)}"
         raise RuntimeError(msg)
 
-    ranked = sorted(candidates, key=lambda item: (item.predicted_win_rate, item.seed))
+    ranked = sorted(candidates, key=lambda item: (_candidate_selection_score(item), item.seed))
     base_count = n_decks // band_count
     remainder = n_decks % band_count
     selected: list[SelectedCandidateDeck] = []
@@ -270,13 +287,16 @@ def _select_score_band_candidates(
                     seed=candidate.seed,
                     card_oracle_ids=candidate.card_oracle_ids,
                     predicted_win_rate=candidate.predicted_win_rate,
+                    selection_score=_candidate_selection_score(candidate),
+                    structure_penalty=candidate.structure_penalty,
                     score_band=band_index,
-                    band_min_score=bucket[0].predicted_win_rate,
-                    band_max_score=bucket[-1].predicted_win_rate,
+                    band_min_score=_candidate_selection_score(bucket[0]),
+                    band_max_score=_candidate_selection_score(bucket[-1]),
+                    diagnostics=candidate.diagnostics,
                 )
             )
 
-    selected.sort(key=lambda item: (item.score_band, item.predicted_win_rate, item.seed))
+    selected.sort(key=lambda item: (item.score_band, item.selection_score, item.seed))
     return selected
 
 
@@ -297,16 +317,24 @@ def _build_candidate_pool(
             continue
         seen_decks.add(signature)
         predicted = score_deck(commander_name, deck_ids, fit_run_id=fit_run_id)
+        diagnostics = analyze_deck_structure(deck_ids, commander_name, ecms_seed=seed)
+        structure_penalty = structural_score_penalty(diagnostics)
+        selection_score = structural_adjusted_score(predicted, diagnostics)
         candidates.append(
             CandidateDeck(
                 seed=seed,
                 card_oracle_ids=deck_ids,
                 predicted_win_rate=predicted,
+                selection_score=selection_score,
+                structure_penalty=structure_penalty,
+                diagnostics=diagnostics,
             )
         )
         print(
             f"candidate {len(candidates)} generated: "
-            f"seed={seed} predicted_win_rate={predicted:.4f}",
+            f"seed={seed} predicted_win_rate={predicted:.4f} "
+            f"selection_score={selection_score:.4f} "
+            f"structure_penalty={structure_penalty:.4f}",
             flush=True,
         )
     return candidates
@@ -328,6 +356,8 @@ def _write_score_band_manifest(
                 "band_min_score",
                 "band_max_score",
                 "predicted_win_rate",
+                "selection_score",
+                "structure_penalty",
             ],
         )
         writer.writeheader()
@@ -634,18 +664,21 @@ def run_score_band_experiment(
                         "band_min_score": selected.band_min_score,
                         "band_max_score": selected.band_max_score,
                         "predicted_win_rate": selected.predicted_win_rate,
+                        "selection_score": selected.selection_score,
+                        "structure_penalty": selected.structure_penalty,
                     }
+                )
+                diagnostics = selected.diagnostics or analyze_deck_structure(
+                    selected.card_oracle_ids,
+                    commander_name,
+                    ecms_seed=selected.seed,
                 )
                 structure_rows.append(
                     structure_manifest_row(
                         generated_deck_id=generated_deck_id,
                         seed=selected.seed,
                         predicted_win_rate=selected.predicted_win_rate,
-                        diagnostics=analyze_deck_structure(
-                            selected.card_oracle_ids,
-                            commander_name,
-                            ecms_seed=selected.seed,
-                        ),
+                        diagnostics=diagnostics,
                     )
                 )
 
@@ -657,7 +690,8 @@ def run_score_band_experiment(
                 print(
                     f"deck {deck_index} of {n_decks} starting: "
                     f"seed={selected.seed} score_band={selected.score_band} "
-                    f"predicted_win_rate={selected.predicted_win_rate:.4f}",
+                    f"predicted_win_rate={selected.predicted_win_rate:.4f} "
+                    f"selection_score={selected.selection_score:.4f}",
                     flush=True,
                 )
 
