@@ -32,12 +32,11 @@ def test_can_add_without_role_overflow_rejects_extra_land() -> None:
         for index in range(ROLE_QUOTAS["lands"].maximum)
     ]
     extra_land = _profile("Extra Land", type_line="Basic Land")
-    by_id = {card.oracle_id: card for card in [*lands, extra_land]}
+    current_counts = count_roles(lands, "Atraxa, Praetors' Voice")
 
     assert not _can_add_without_role_overflow(
-        {card.oracle_id for card in lands},
         extra_land,
-        by_id,
+        current_counts,
         "Atraxa, Praetors' Voice",
     )
 

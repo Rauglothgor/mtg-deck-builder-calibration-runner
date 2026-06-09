@@ -97,15 +97,15 @@ def _meets_role_constraints(cards: list[CardProfile], commander_name: str) -> bo
 
 
 def _can_add_without_role_overflow(
-    deck_ids: set[UUID],
     candidate: CardProfile,
-    by_id: dict[UUID, CardProfile],
+    current_counts: dict[str, int],
     commander_name: str,
 ) -> bool:
-    trial_ids = set(deck_ids)
-    trial_ids.add(candidate.oracle_id)
-    counts = count_roles(_current_cards(trial_ids, by_id), commander_name)
-    return all(counts[role] <= ROLE_QUOTAS[role].maximum for role in HARD_ROLE_MAXIMUMS)
+    candidate_roles = detect_roles(candidate, commander_name)
+    return all(
+        current_counts[role] + (1 if role in candidate_roles else 0) <= ROLE_QUOTAS[role].maximum
+        for role in HARD_ROLE_MAXIMUMS
+    )
 
 
 def _init_temperature() -> float:
@@ -170,7 +170,7 @@ def _initialize_deck(
                 card
                 for card in by_role[role]
                 if card.oracle_id not in deck_ids
-                and _can_add_without_role_overflow(deck_ids, card, by_id, commander.name)
+                and _can_add_without_role_overflow(card, current_counts, commander.name)
             ]
             if not available_cards:
                 msg = f"Initialization ran out of available candidates for role {role}"
@@ -184,12 +184,13 @@ def _initialize_deck(
             deck_ids.add(chosen_card.oracle_id)
 
     while len(deck_ids) < TARGET_DECK_SIZE:
+        current_counts = count_roles(_current_cards(deck_ids, by_id), commander.name)
         available_flex = [
             card
             for card in by_role[THEME_FLEX]
             if card.oracle_id not in deck_ids
             and LANDS not in detect_roles(card, commander.name)
-            and _can_add_without_role_overflow(deck_ids, card, by_id, commander.name)
+            and _can_add_without_role_overflow(card, current_counts, commander.name)
         ]
         if not available_flex:
             msg = "Initialization ran out of available flex candidates"
