@@ -24,6 +24,11 @@ from deckbuilder.db.models import (
 )
 from deckbuilder.db.session import get_session
 from deckbuilder.experiment.metrics import CalibrationReport, compute_calibration
+from deckbuilder.experiment.structure import (
+    analyze_deck_structure,
+    structure_manifest_row,
+    write_structure_manifest,
+)
 from deckbuilder.forge.decklist import to_dck_format
 from deckbuilder.forge.parser import SimResult
 from deckbuilder.forge.runner import run_sim
@@ -370,6 +375,7 @@ def run_experiment(
     generated_ids: list[UUID] = []
     sim_result_ids: list[UUID] = []
     pairs: list[tuple[float, float]] = []
+    structure_rows: list[dict[str, str | int | float]] = []
     retry_count = 0
 
     try:
@@ -406,6 +412,18 @@ def run_experiment(
                     session.commit()
                     generated_deck_id = generated_deck.id
                 generated_ids.append(generated_deck_id)
+                structure_rows.append(
+                    structure_manifest_row(
+                        generated_deck_id=generated_deck_id,
+                        seed=current_seed,
+                        predicted_win_rate=predicted,
+                        diagnostics=analyze_deck_structure(
+                            deck_ids,
+                            commander_name,
+                            ecms_seed=current_seed,
+                        ),
+                    )
+                )
 
                 sim_result_id = _create_sim_result_row(generated_deck_id, opponent_path.name)
                 sim_result_ids.append(sim_result_id)
@@ -509,6 +527,8 @@ def run_experiment(
                 commander_name=commander_name,
                 output_path=output_path,
             )
+        structure_path = write_structure_manifest(output_path, structure_rows)
+        print(f"structure_manifest={structure_path}", flush=True)
         return ExperimentOutcome(
             experiment_run_id=experiment_run_id,
             calibration=calibration,
@@ -570,6 +590,7 @@ def run_score_band_experiment(
     sim_result_ids: list[UUID] = []
     pairs: list[tuple[float, float]] = []
     manifest_rows: list[dict[str, str | int | float]] = []
+    structure_rows: list[dict[str, str | int | float]] = []
     retry_count = 0
 
     try:
@@ -614,6 +635,18 @@ def run_score_band_experiment(
                         "band_max_score": selected.band_max_score,
                         "predicted_win_rate": selected.predicted_win_rate,
                     }
+                )
+                structure_rows.append(
+                    structure_manifest_row(
+                        generated_deck_id=generated_deck_id,
+                        seed=selected.seed,
+                        predicted_win_rate=selected.predicted_win_rate,
+                        diagnostics=analyze_deck_structure(
+                            selected.card_oracle_ids,
+                            commander_name,
+                            ecms_seed=selected.seed,
+                        ),
+                    )
                 )
 
                 sim_result_id = _create_sim_result_row(generated_deck_id, opponent_path.name)
@@ -713,7 +746,9 @@ def run_score_band_experiment(
                 output_path=output_path,
             )
         manifest_path = _write_score_band_manifest(output_path, manifest_rows)
+        structure_path = write_structure_manifest(output_path, structure_rows)
         print(f"selection_manifest={manifest_path}", flush=True)
+        print(f"structure_manifest={structure_path}", flush=True)
         return ExperimentOutcome(
             experiment_run_id=experiment_run_id,
             calibration=calibration,
