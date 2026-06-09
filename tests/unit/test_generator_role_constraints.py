@@ -1,6 +1,13 @@
 from uuid import uuid4
 
-from deckbuilder.generator.roles import RAMP, ROLE_QUOTAS, CardProfile, count_roles
+from deckbuilder.generator.roles import (
+    LANDS,
+    RAMP,
+    ROLE_QUOTAS,
+    CardProfile,
+    count_roles,
+    detect_roles,
+)
 from deckbuilder.generator.search import (
     _can_add_without_role_overflow,
     _meets_role_constraints,
@@ -33,6 +40,15 @@ def test_can_add_without_role_overflow_rejects_extra_land() -> None:
         by_id,
         "Atraxa, Praetors' Voice",
     )
+
+
+def test_mana_land_does_not_count_as_ramp() -> None:
+    land = _profile("Command Tower", type_line="Land", oracle_text="Add one mana of any color.")
+
+    roles = detect_roles(land, "Atraxa, Praetors' Voice")
+
+    assert LANDS in roles
+    assert RAMP not in roles
 
 
 def test_meets_role_constraints_rejects_ramp_overflow() -> None:

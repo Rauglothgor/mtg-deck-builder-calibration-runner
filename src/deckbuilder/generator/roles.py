@@ -106,9 +106,10 @@ def detect_roles(card: CardProfile, commander_name: str) -> set[str]:
     """Return all roles matched by the frozen regex and commander archetype rules."""
     roles: set[str] = set()
     oracle_text = card.oracle_text
-    if "Land" in card.type_line:
+    is_land = "Land" in card.type_line
+    if is_land:
         roles.add(LANDS)
-    if RAMP_PATTERN.search(oracle_text):
+    if not is_land and RAMP_PATTERN.search(oracle_text):
         roles.add(RAMP)
     if CARD_DRAW_PATTERN.search(oracle_text):
         roles.add(CARD_DRAW)
