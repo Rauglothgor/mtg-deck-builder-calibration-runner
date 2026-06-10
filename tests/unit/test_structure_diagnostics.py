@@ -1,6 +1,8 @@
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from deckbuilder.experiment.structure import (
     DeckStructureDiagnostics,
     StructureCard,
@@ -120,11 +122,11 @@ def test_structural_score_penalty_leaves_clean_shell_near_raw_score() -> None:
         ramp_count=12,
         card_draw_count=12,
         removal_count=10,
-        board_wipe_count=3,
+        board_wipe_count=2,
         win_condition_count=6,
-        average_nonland_cmc=2.9,
+        average_nonland_cmc=2.8,
         median_nonland_cmc=2.8,
-        low_curve_nonland_count=18,
+        low_curve_nonland_count=24,
         high_curve_nonland_count=7,
         expected_compounded_mana_spent=66.0,
     )
@@ -133,7 +135,7 @@ def test_structural_score_penalty_leaves_clean_shell_near_raw_score() -> None:
     assert structural_adjusted_score(0.82, diagnostics) == 0.82
 
 
-def test_structural_score_penalty_separates_saturated_clunky_shell() -> None:
+def test_structural_score_penalty_caps_saturated_clunky_shell() -> None:
     diagnostics = DeckStructureDiagnostics(
         card_count=99,
         land_count=38,
@@ -150,5 +152,26 @@ def test_structural_score_penalty_separates_saturated_clunky_shell() -> None:
         expected_compounded_mana_spent=63.0,
     )
 
-    assert structural_score_penalty(diagnostics) == 0.403
-    assert structural_adjusted_score(1.0, diagnostics) == 0.597
+    assert structural_score_penalty(diagnostics) == 0.65
+    assert structural_adjusted_score(1.0, diagnostics) == 0.35
+
+
+def test_structural_score_penalty_separates_observed_high_curve_shell() -> None:
+    diagnostics = DeckStructureDiagnostics(
+        card_count=99,
+        land_count=38,
+        nonland_count=61,
+        ramp_count=12,
+        card_draw_count=17,
+        removal_count=12,
+        board_wipe_count=3,
+        win_condition_count=7,
+        average_nonland_cmc=3.1,
+        median_nonland_cmc=3.0,
+        low_curve_nonland_count=22,
+        high_curve_nonland_count=10,
+        expected_compounded_mana_spent=65.0,
+    )
+
+    assert structural_score_penalty(diagnostics) == pytest.approx(0.44)
+    assert structural_adjusted_score(1.0, diagnostics) == pytest.approx(0.56)
