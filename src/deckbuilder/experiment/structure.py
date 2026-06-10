@@ -18,6 +18,7 @@ from deckbuilder.generator.roles import (
     CARD_DRAW,
     LANDS,
     RAMP,
+    RAMP_PATTERN,
     REMOVAL,
     WIN_CONDITION,
     CardProfile,
@@ -122,13 +123,7 @@ def structural_adjusted_score(
 
 
 def _text_is_ramp(oracle_text: str) -> bool:
-    text = oracle_text.lower()
-    return (
-        "add " in text
-        or "search your library for" in text
-        or "treasure token" in text
-        or ("untap" in text and "land" in text)
-    )
+    return RAMP_PATTERN.search(oracle_text) is not None
 
 
 def _load_structure_cards(card_oracle_ids: list[UUID]) -> list[StructureCard]:
