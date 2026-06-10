@@ -125,7 +125,9 @@ def structural_adjusted_score(
     diagnostics: DeckStructureDiagnostics,
 ) -> float:
     """Adjust a raw surrogate score for selection without changing calibration labels."""
-    return min(1.0, max(0.0, predicted_win_rate - structural_score_penalty(diagnostics)))
+    penalty_scale = min(1.0, max(0.0, (predicted_win_rate - 0.5) / 0.5))
+    scaled_penalty = structural_score_penalty(diagnostics) * penalty_scale
+    return min(1.0, max(0.0, predicted_win_rate - scaled_penalty))
 
 
 def _text_is_ramp(oracle_text: str) -> bool:

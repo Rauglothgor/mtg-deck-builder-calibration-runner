@@ -175,3 +175,26 @@ def test_structural_score_penalty_separates_observed_high_curve_shell() -> None:
 
     assert structural_score_penalty(diagnostics) == pytest.approx(0.44)
     assert structural_adjusted_score(1.0, diagnostics) == pytest.approx(0.56)
+
+
+def test_structural_adjusted_score_scales_penalty_for_non_saturated_scores() -> None:
+    diagnostics = DeckStructureDiagnostics(
+        card_count=99,
+        land_count=38,
+        nonland_count=61,
+        ramp_count=12,
+        card_draw_count=17,
+        removal_count=12,
+        board_wipe_count=3,
+        win_condition_count=7,
+        average_nonland_cmc=3.1,
+        median_nonland_cmc=3.0,
+        low_curve_nonland_count=22,
+        high_curve_nonland_count=10,
+        expected_compounded_mana_spent=65.0,
+    )
+
+    assert structural_score_penalty(diagnostics) == pytest.approx(0.44)
+    assert structural_adjusted_score(0.4, diagnostics) == pytest.approx(0.4)
+    assert structural_adjusted_score(0.75, diagnostics) == pytest.approx(0.53)
+    assert structural_adjusted_score(1.0, diagnostics) == pytest.approx(0.56)
