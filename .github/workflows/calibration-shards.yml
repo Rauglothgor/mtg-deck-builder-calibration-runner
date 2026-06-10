@@ -35,6 +35,10 @@ on:
         description: "Score-band mode rank bands per shard"
         required: true
         default: "5"
+      skip_validation:
+        description: "Skip ruff/format/mypy validation for verified shard reruns"
+        required: true
+        default: "false"
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -143,7 +147,7 @@ jobs:
           java -version
 
       - name: Validate code
-        if: ${{ matrix.shard < fromJSON(inputs.shards) }}
+        if: ${{ matrix.shard < fromJSON(inputs.shards) && inputs.skip_validation != 'true' }}
         run: |
           uv run ruff check .
           uv run ruff format --check .
