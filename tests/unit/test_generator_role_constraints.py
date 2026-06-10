@@ -50,6 +50,14 @@ def test_mana_land_does_not_count_as_ramp() -> None:
     assert RAMP not in roles
 
 
+def test_natural_language_mana_creature_counts_as_ramp() -> None:
+    creature = _profile("Mana Dork", oracle_text="Add one mana of any color.")
+
+    roles = detect_roles(creature, "Atraxa, Praetors' Voice")
+
+    assert RAMP in roles
+
+
 def test_meets_role_constraints_rejects_ramp_overflow() -> None:
     cards = [
         *[

@@ -57,7 +57,8 @@ ROLE_QUOTAS: Final[dict[str, RoleQuota]] = {
 }
 
 RAMP_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(\badd\s+[\{wubrgc0-9x/\}\s]+\b|search your library for (?:a|an|up to .*?) land|"
+    r"(\badd\s+(?:\{[wubrgc0-9x/]+\}|(?:one|two|three|four|five|six|seven|eight|nine|ten|x|\d+)"
+    r"(?:\s+mana)?)|search your library for (?:a|an|up to .*?) land|"
     r"create a treasure token|create .*? treasure token|untap up to .* lands?)",
     re.IGNORECASE | re.DOTALL,
 )
