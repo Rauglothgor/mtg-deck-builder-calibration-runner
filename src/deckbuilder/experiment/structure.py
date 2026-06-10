@@ -97,19 +97,23 @@ def structural_score_penalty(diagnostics: DeckStructureDiagnostics) -> float:
     if diagnostics.land_count > 40:
         penalty += (diagnostics.land_count - 40) * 0.04
 
-    if diagnostics.ramp_count > 24:
-        penalty += (diagnostics.ramp_count - 24) * 0.015
+    if diagnostics.ramp_count > 14:
+        penalty += (diagnostics.ramp_count - 14) * 0.015
     if diagnostics.card_draw_count < 10:
         penalty += (10 - diagnostics.card_draw_count) * 0.025
     if diagnostics.removal_count < 8:
         penalty += (8 - diagnostics.removal_count) * 0.025
 
-    if diagnostics.high_curve_nonland_count > 10:
-        penalty += (diagnostics.high_curve_nonland_count - 10) * 0.02
-    if diagnostics.average_nonland_cmc > 3.8:
-        penalty += (diagnostics.average_nonland_cmc - 3.8) * 0.08
-    if diagnostics.expected_compounded_mana_spent < 58:
-        penalty += (58 - diagnostics.expected_compounded_mana_spent) * 0.01
+    if diagnostics.board_wipe_count > 3:
+        penalty += (diagnostics.board_wipe_count - 3) * 0.03
+    if diagnostics.win_condition_count > 6:
+        penalty += (diagnostics.win_condition_count - 6) * 0.02
+    if diagnostics.high_curve_nonland_count > 8:
+        penalty += (diagnostics.high_curve_nonland_count - 8) * 0.035
+    if diagnostics.average_nonland_cmc > 3.0:
+        penalty += (diagnostics.average_nonland_cmc - 3.0) * 0.12
+    if diagnostics.expected_compounded_mana_spent < 66:
+        penalty += (66 - diagnostics.expected_compounded_mana_spent) * 0.015
 
     return min(0.65, max(0.0, penalty))
 
