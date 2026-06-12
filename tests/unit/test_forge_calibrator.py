@@ -28,6 +28,8 @@ def test_load_observations_from_artifacts_pairs_report_and_selection_csv(tmp_pat
         "\n".join(
             [
                 "# Calibration Report",
+                "- Forge AI profile: `forge-daily-snapshot`",
+                "- Forge build ID: `2.0.13-SNAPSHOT-06.11-2026-06-11T19:12:03Z`",
                 "## All Cases",
                 "| Deck ID | Predicted | Actual | Bias | Deviation |",
                 "|---|---:|---:|---:|---:|",
@@ -69,6 +71,51 @@ def test_load_observations_from_artifacts_pairs_report_and_selection_csv(tmp_pat
             actual_win_rate=0.6,
         ),
     ]
+
+
+def test_load_observations_from_artifacts_rejects_missing_forge_metadata(
+    tmp_path: Path,
+) -> None:
+    report_path = tmp_path / "v0_5_calibration_shard_0.md"
+    report_path.write_text(
+        "\n".join(
+            [
+                "# Calibration Report",
+                "## All Cases",
+                "| Deck ID | Predicted | Actual | Bias | Deviation |",
+                "|---|---:|---:|---:|---:|",
+                "| `deck-a` | 0.100 | 0.500 | -0.400 | 0.400 |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Forge metadata missing"):
+        load_observations_from_artifacts(tmp_path)
+
+
+def test_load_observations_from_artifacts_rejects_mixed_forge_metadata(
+    tmp_path: Path,
+) -> None:
+    for index, build_id in enumerate(["build-a", "build-b"]):
+        report_path = tmp_path / f"v0_5_calibration_shard_{index}.md"
+        report_path.write_text(
+            "\n".join(
+                [
+                    "# Calibration Report",
+                    "- Forge AI profile: `forge-daily-snapshot`",
+                    f"- Forge build ID: `{build_id}`",
+                    "## All Cases",
+                    "| Deck ID | Predicted | Actual | Bias | Deviation |",
+                    "|---|---:|---:|---:|---:|",
+                    f"| `deck-{index}` | 0.100 | 0.500 | -0.400 | 0.400 |",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="Mixed Forge AI builds"):
+        load_observations_from_artifacts(tmp_path)
 
 
 def test_fit_empirical_calibrator_pools_non_monotonic_bins() -> None:
@@ -118,6 +165,8 @@ def test_load_outcome_observations_requires_report_selection_and_structure(
         "\n".join(
             [
                 "# Calibration Report",
+                "- Forge AI profile: `forge-daily-snapshot`",
+                "- Forge build ID: `2.0.13-SNAPSHOT-06.11-2026-06-11T19:12:03Z`",
                 "## All Cases",
                 "| Deck ID | Predicted | Actual | Bias | Deviation |",
                 "|---|---:|---:|---:|---:|",

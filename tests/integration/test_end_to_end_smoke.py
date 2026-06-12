@@ -7,6 +7,7 @@ from uuid import UUID
 from _pytest.monkeypatch import MonkeyPatch
 from sqlalchemy import delete, select
 
+from deckbuilder.config import get_settings
 from deckbuilder.db.models import (
     AwrCoefficient,
     Card,
@@ -18,7 +19,26 @@ from deckbuilder.db.models import (
 )
 from deckbuilder.db.session import get_session
 from deckbuilder.experiment.orchestrator import run_experiment
+from deckbuilder.experiment.structure import DeckStructureDiagnostics
 from deckbuilder.forge.parser import SimResult
+
+
+def _clean_structure_diagnostics() -> DeckStructureDiagnostics:
+    return DeckStructureDiagnostics(
+        card_count=99,
+        land_count=37,
+        nonland_count=62,
+        ramp_count=10,
+        card_draw_count=10,
+        removal_count=8,
+        board_wipe_count=2,
+        win_condition_count=4,
+        average_nonland_cmc=2.7,
+        median_nonland_cmc=2.5,
+        low_curve_nonland_count=25,
+        high_curve_nonland_count=5,
+        expected_compounded_mana_spent=70.0,
+    )
 
 
 def test_mocked_experiment_pipeline_persists_rows_and_renders_report(
@@ -129,6 +149,13 @@ def test_mocked_experiment_pipeline_persists_rows_and_renders_report(
     monkeypatch.setattr("deckbuilder.experiment.orchestrator.score_deck", fake_score_deck)
     monkeypatch.setattr("deckbuilder.experiment.orchestrator.to_dck_format", fake_to_dck_format)
     monkeypatch.setattr("deckbuilder.experiment.orchestrator.run_sim", fake_run_sim)
+    monkeypatch.setattr(
+        "deckbuilder.experiment.orchestrator.analyze_deck_structure",
+        lambda *_args, **_kwargs: _clean_structure_diagnostics(),
+    )
+    monkeypatch.setenv("DECKBUILDER_FORGE_AI_PROFILE", "forge-ai-test")
+    monkeypatch.setenv("DECKBUILDER_FORGE_BUILD_ID", "test-build-123")
+    get_settings.cache_clear()
 
     try:
         outcome = run_experiment(
@@ -145,6 +172,8 @@ def test_mocked_experiment_pipeline_persists_rows_and_renders_report(
         assert "## Decision Recommendation" in report_text
         assert "## Top 10 Adversarial Cases" in report_text
         assert "## ASCII Scatter" in report_text
+        assert "Forge AI profile: `forge-ai-test`" in report_text
+        assert "Forge build ID: `test-build-123`" in report_text
 
         with get_session() as session:
             run_row = session.get(ExperimentRun, outcome.experiment_run_id)
@@ -152,6 +181,8 @@ def test_mocked_experiment_pipeline_persists_rows_and_renders_report(
             assert run_row.status == "completed"
             assert run_row.retry_count == 1
             assert run_row.decision == outcome.calibration.decision
+            assert run_row.forge_ai_profile == "forge-ai-test"
+            assert run_row.forge_build_id == "test-build-123"
             persisted_sim_results = (
                 session.execute(
                     select(SimRow)
@@ -165,13 +196,22 @@ def test_mocked_experiment_pipeline_persists_rows_and_renders_report(
             assert sum(row.matches_played for row in persisted_sim_results) == 50
     finally:
         with get_session() as session:
-            generated_ids = []
+            run_ids = set(
+                session.execute(
+                    select(ExperimentRun.id).where(
+                        ExperimentRun.commander_oracle_id == commander_id
+                    )
+                )
+                .scalars()
+                .all()
+            )
             if "outcome" in locals():
+                run_ids.add(outcome.experiment_run_id)
+            generated_ids = []
+            if run_ids:
                 generated_ids = (
                     session.execute(
-                        select(GeneratedDeck.id).where(
-                            GeneratedDeck.experiment_run_id == outcome.experiment_run_id
-                        )
+                        select(GeneratedDeck.id).where(GeneratedDeck.experiment_run_id.in_(run_ids))
                     )
                     .scalars()
                     .all()
@@ -179,10 +219,9 @@ def test_mocked_experiment_pipeline_persists_rows_and_renders_report(
             if generated_ids:
                 session.execute(delete(SimRow).where(SimRow.generated_deck_id.in_(generated_ids)))
                 session.execute(delete(GeneratedDeck).where(GeneratedDeck.id.in_(generated_ids)))
-            if "outcome" in locals():
-                session.execute(
-                    delete(ExperimentRun).where(ExperimentRun.id == outcome.experiment_run_id)
-                )
+            if run_ids:
+                session.execute(delete(ExperimentRun).where(ExperimentRun.id.in_(run_ids)))
             session.execute(delete(AwrCoefficient).where(AwrCoefficient.fit_run_id == fit_run_id))
             session.execute(delete(Card).where(Card.oracle_id == commander_id))
             session.commit()
+        get_settings.cache_clear()

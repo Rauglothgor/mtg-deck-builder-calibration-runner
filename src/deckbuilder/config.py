@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     forge_bundled_deck_dir: Path = Field(
         default=Path("/opt/forge/res/adventure/Realm of Legends/decks/legends")
     )
+    forge_ai_profile: str = Field(default="forge-baseline")
+    forge_build_id: str = Field(default="unknown")
     default_seed: int = Field(default=42)
 
     model_config = SettingsConfigDict(env_prefix="DECKBUILDER_", env_file=".env", extra="ignore")

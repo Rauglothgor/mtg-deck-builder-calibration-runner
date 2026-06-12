@@ -155,6 +155,8 @@ class ExperimentRun(Base):
     matches_per_deck: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(Text, default="pending")
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    forge_ai_profile: Mapped[str] = mapped_column(Text, default="forge-baseline")
+    forge_build_id: Mapped[str] = mapped_column(Text, default="unknown")
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), server_default=func.now()
     )

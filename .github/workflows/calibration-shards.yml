@@ -47,6 +47,14 @@ on:
         description: "Optional learned Forge-outcome model JSON path for score-band selection"
         required: false
         default: ""
+      forge_ai_profile:
+        description: "Forge AI profile label to embed in deck-test reports"
+        required: true
+        default: "forge-2.0.12-release"
+      forge_build_id:
+        description: "Forge build ID to embed in deck-test reports"
+        required: true
+        default: "forge-2.0.12"
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -83,6 +91,8 @@ jobs:
       DECKBUILDER_FORGE_ROOT: ${{ github.workspace }}/.local/forge
       DECKBUILDER_FORGE_DECKS_DIR: /home/runner/.forge/decks/commander
       DECKBUILDER_FORGE_BUNDLED_DECK_DIR: ${{ github.workspace }}/.local/forge/res/adventure/Realm of Legends/decks/legends
+      DECKBUILDER_FORGE_AI_PROFILE: ${{ inputs.forge_ai_profile }}
+      DECKBUILDER_FORGE_BUILD_ID: ${{ inputs.forge_build_id }}
       DECKBUILDER_LLM_DISABLED: "true"
       JAVA_HOME: ${{ github.workspace }}/.local/java/jdk-17
 

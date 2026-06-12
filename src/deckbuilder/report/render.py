@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,43 @@ class ExperimentCase:
     @property
     def is_overconfident(self) -> bool:
         return self.calibration_bias > 0.20
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class ForgeRunIdentity:
+    """Forge AI build metadata used to keep calibration runs comparable."""
+
+    forge_ai_profile: str
+    forge_build_id: str
+
+
+def forge_identity_from_run(experiment_run: ExperimentRun) -> ForgeRunIdentity:
+    """Return normalized Forge AI identity metadata for one experiment run."""
+    return ForgeRunIdentity(
+        forge_ai_profile=experiment_run.forge_ai_profile or "forge-baseline",
+        forge_build_id=experiment_run.forge_build_id or "unknown",
+    )
+
+
+def require_single_forge_identity(
+    experiment_runs: Iterable[ExperimentRun],
+    *,
+    allow_mixed: bool = False,
+) -> ForgeRunIdentity | None:
+    """Reject silent comparison of calibration runs from different Forge AI builds."""
+    identities = {forge_identity_from_run(experiment_run) for experiment_run in experiment_runs}
+    if not identities:
+        return None
+    if len(identities) > 1:
+        if allow_mixed:
+            return None
+        formatted = ", ".join(
+            f"{identity.forge_ai_profile}/{identity.forge_build_id}"
+            for identity in sorted(identities)
+        )
+        msg = f"Mixed Forge AI builds require explicit grouping: {formatted}"
+        raise ValueError(msg)
+    return next(iter(identities))
 
 
 def _template_environment() -> Environment:
@@ -151,6 +189,8 @@ def render_experiment_report(
             "status": experiment_run.status,
             "n_decks": experiment_run.n_decks,
             "matches_per_deck": experiment_run.matches_per_deck,
+            "forge_ai_profile": experiment_run.forge_ai_profile or "forge-baseline",
+            "forge_build_id": experiment_run.forge_build_id or "unknown",
             "retry_count": experiment_run.retry_count,
             "started_at": _format_datetime(experiment_run.started_at),
             "completed_at": _format_datetime(experiment_run.completed_at),
@@ -192,6 +232,8 @@ def build_report_context(
             "status": experiment_run.status,
             "n_decks": experiment_run.n_decks,
             "matches_per_deck": experiment_run.matches_per_deck,
+            "forge_ai_profile": experiment_run.forge_ai_profile or "forge-baseline",
+            "forge_build_id": experiment_run.forge_build_id or "unknown",
             "retry_count": experiment_run.retry_count,
         },
         "summary": {

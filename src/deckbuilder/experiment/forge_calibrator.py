@@ -58,6 +58,14 @@ class ForgeOutcomeObservation:
     features: dict[str, float]
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class ForgeArtifactIdentity:
+    """Forge AI identity parsed from deck-test report artifacts."""
+
+    forge_ai_profile: str
+    forge_build_id: str
+
+
 @dataclass(frozen=True, slots=True)
 class EmpiricalCalibrationBin:
     """A score interval mapped to an empirical Forge win rate."""
@@ -171,6 +179,7 @@ class OutcomeModelEvaluation:
 
 def load_observations_from_artifacts(artifacts_dir: Path) -> list[CalibrationObservation]:
     """Load calibration observations from markdown and selection CSV artifacts."""
+    _require_single_artifact_identity(artifacts_dir)
     actual_by_id = _load_actual_win_rates(artifacts_dir)
     observations: list[CalibrationObservation] = []
     for selection_path in artifacts_dir.rglob("*.selection.csv"):
@@ -195,6 +204,7 @@ def load_observations_from_artifacts(artifacts_dir: Path) -> list[CalibrationObs
 
 def load_outcome_observations_from_artifacts(artifacts_dir: Path) -> list[ForgeOutcomeObservation]:
     """Load complete Forge-outcome model rows from report, selection, and structure artifacts."""
+    _require_single_artifact_identity(artifacts_dir)
     actual_by_id = _load_actual_win_rates(artifacts_dir)
     selection_by_id = _load_selection_rows(artifacts_dir)
     structure_by_id = _load_structure_rows(artifacts_dir)
@@ -483,6 +493,71 @@ def load_forge_outcome_model(model_path: Path) -> ForgeOutcomeModel:
         training_mad=float(payload["training_mad"]),
         training_bias=float(payload["training_bias"]),
     )
+
+
+def _require_single_artifact_identity(artifacts_dir: Path) -> ForgeArtifactIdentity | None:
+    identities: set[ForgeArtifactIdentity] = set()
+    missing_identity_paths: list[Path] = []
+    for report_path in artifacts_dir.rglob("*.md"):
+        report_text = report_path.read_text(encoding="utf-8")
+        if "## All Cases" not in report_text:
+            continue
+        identity = _forge_identity_from_report_text(report_text, report_path)
+        if identity is None:
+            missing_identity_paths.append(report_path)
+            continue
+        identities.add(identity)
+
+    if missing_identity_paths:
+        formatted = ", ".join(str(path) for path in sorted(missing_identity_paths, key=str))
+        msg = f"Forge metadata missing from deck-test report(s): {formatted}"
+        raise ValueError(msg)
+    if len(identities) > 1:
+        formatted = ", ".join(
+            f"{identity.forge_ai_profile}/{identity.forge_build_id}"
+            for identity in sorted(identities)
+        )
+        msg = f"Mixed Forge AI builds require explicit grouping: {formatted}"
+        raise ValueError(msg)
+    return next(iter(identities)) if identities else None
+
+
+def _forge_identity_from_report_text(
+    report_text: str,
+    report_path: Path,
+) -> ForgeArtifactIdentity | None:
+    forge_ai_profile: str | None = None
+    forge_build_id: str | None = None
+    for line in report_text.splitlines():
+        stripped = line.strip()
+        profile = _metadata_line_value(stripped, "Forge AI profile")
+        if profile is not None:
+            forge_ai_profile = profile
+            continue
+        build_id = _metadata_line_value(stripped, "Forge build ID")
+        if build_id is not None:
+            forge_build_id = build_id
+
+    if forge_ai_profile is None and forge_build_id is None:
+        return None
+    if forge_ai_profile is None or forge_build_id is None:
+        msg = f"Incomplete Forge metadata in deck-test report: {report_path}"
+        raise ValueError(msg)
+    return ForgeArtifactIdentity(
+        forge_ai_profile=forge_ai_profile or "forge-baseline",
+        forge_build_id=forge_build_id or "unknown",
+    )
+
+
+def _metadata_line_value(line: str, label: str) -> str | None:
+    for prefix in (f"- {label}: `", f"{label}: `"):
+        if not line.startswith(prefix):
+            continue
+        if not line.endswith("`"):
+            msg = f"Malformed metadata line: {line}"
+            raise ValueError(msg)
+        return line[len(prefix) : -1].strip()
+    return None
 
 
 def _load_actual_win_rates(artifacts_dir: Path) -> dict[str, float]:

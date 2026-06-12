@@ -407,6 +407,7 @@ def run_experiment(
 
     output_path = Path(output)
     opponent_path = _resolve_opponent_path(opponent)
+    settings = get_settings()
 
     with get_session() as session:
         commander_oracle_id = _resolve_commander(session, commander_name)
@@ -417,6 +418,8 @@ def run_experiment(
             matches_per_deck=matches,
             status="running",
             retry_count=0,
+            forge_ai_profile=settings.forge_ai_profile,
+            forge_build_id=settings.forge_build_id,
         )
         session.add(experiment_run)
         session.commit()
@@ -623,6 +626,7 @@ def run_score_band_experiment(
 
     output_path = Path(output)
     opponent_path = _resolve_opponent_path(opponent)
+    settings = get_settings()
 
     with get_session() as session:
         commander_oracle_id = _resolve_commander(session, commander_name)
@@ -633,6 +637,8 @@ def run_score_band_experiment(
             matches_per_deck=matches,
             status="running",
             retry_count=0,
+            forge_ai_profile=settings.forge_ai_profile,
+            forge_build_id=settings.forge_build_id,
         )
         session.add(experiment_run)
         session.commit()
