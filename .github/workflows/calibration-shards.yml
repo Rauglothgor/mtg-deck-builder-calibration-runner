@@ -47,14 +47,22 @@ on:
         description: "Optional learned Forge-outcome model JSON path for score-band selection"
         required: false
         default: ""
+      forge_installer_url:
+        description: "Forge desktop installer .tar.bz2 URL; must match Forge report metadata"
+        required: true
+        default: "https://github.com/Card-Forge/forge/releases/download/daily-snapshots/forge-installer-2.0.13-SNAPSHOT-06.11.tar.bz2"
       forge_ai_profile:
         description: "Forge AI profile label to embed in deck-test reports"
         required: true
-        default: "forge-2.0.12-release"
+        default: "forge-daily-snapshot"
       forge_build_id:
         description: "Forge build ID to embed in deck-test reports"
         required: true
-        default: "forge-2.0.12"
+        default: "2.0.13-SNAPSHOT-06.11-2026-06-11T19:12:03Z"
+      forge_cache_key:
+        description: "Cache key for the Forge runtime install; change when installer URL changes"
+        required: true
+        default: "forge-daily-snapshot-2.0.13-SNAPSHOT-06.11-20260611T191203Z-temurin17-v1"
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -93,6 +101,7 @@ jobs:
       DECKBUILDER_FORGE_BUNDLED_DECK_DIR: ${{ github.workspace }}/.local/forge/res/adventure/Realm of Legends/decks/legends
       DECKBUILDER_FORGE_AI_PROFILE: ${{ inputs.forge_ai_profile }}
       DECKBUILDER_FORGE_BUILD_ID: ${{ inputs.forge_build_id }}
+      FORGE_INSTALLER_URL: ${{ inputs.forge_installer_url }}
       DECKBUILDER_LLM_DISABLED: "true"
       JAVA_HOME: ${{ github.workspace }}/.local/java/jdk-17
 
@@ -132,7 +141,7 @@ jobs:
           path: |
             .local/java
             .local/forge
-          key: forge-2.0.12-temurin17-v1
+          key: ${{ inputs.forge_cache_key }}
 
       - name: Install Python dependencies
         if: ${{ matrix.shard < fromJSON(inputs.shards) }}
@@ -154,11 +163,11 @@ jobs:
           echo "$JAVA_HOME/bin" >> "$GITHUB_PATH"
           if [ ! -x "$DECKBUILDER_FORGE_ROOT/forge.sh" ]; then
             curl -L --fail --retry 3 \
-              "https://github.com/Card-Forge/forge/releases/download/forge-2.0.12/forge-installer-2.0.12.tar.bz2" \
-              -o .cache/deckbuilder/forge-installer-2.0.12.tar.bz2
+              "$FORGE_INSTALLER_URL" \
+              -o .cache/deckbuilder/forge-installer.tar.bz2
             rm -rf "$DECKBUILDER_FORGE_ROOT"
             mkdir -p "$DECKBUILDER_FORGE_ROOT"
-            tar -xjf .cache/deckbuilder/forge-installer-2.0.12.tar.bz2 -C "$DECKBUILDER_FORGE_ROOT"
+            tar -xjf .cache/deckbuilder/forge-installer.tar.bz2 -C "$DECKBUILDER_FORGE_ROOT"
           fi
           cp "$DECKBUILDER_FORGE_BUNDLED_DECK_DIR/alela.dck" "$DECKBUILDER_FORGE_DECKS_DIR/"
           cp "$DECKBUILDER_FORGE_BUNDLED_DECK_DIR/atraxa.dck" "$DECKBUILDER_FORGE_DECKS_DIR/"
