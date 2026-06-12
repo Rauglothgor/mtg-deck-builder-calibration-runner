@@ -1,0 +1,118 @@
+{
+  "base_calibrator": {
+    "bins": [
+      {
+        "calibrated_win_rate": 0.47333333333333333,
+        "count": 21,
+        "mean_score": 0.0007760663711229418,
+        "observed_win_rate": 0.47333333333333333,
+        "score_max": 0.009090893127601673,
+        "score_min": 1.6918350511711775e-88
+      },
+      {
+        "calibrated_win_rate": 0.5528571428571428,
+        "count": 21,
+        "mean_score": 0.2863208583710626,
+        "observed_win_rate": 0.5528571428571428,
+        "score_max": 0.36294752791433055,
+        "score_min": 0.038005597240709864
+      },
+      {
+        "calibrated_win_rate": 0.5752380952380952,
+        "count": 21,
+        "mean_score": 0.5303360759814283,
+        "observed_win_rate": 0.5752380952380952,
+        "score_max": 0.610999999991392,
+        "score_min": 0.39615202851151565
+      },
+      {
+        "calibrated_win_rate": 0.5845238095238096,
+        "count": 21,
+        "mean_score": 0.6758610750853148,
+        "observed_win_rate": 0.5895238095238096,
+        "score_max": 0.7495901639344262,
+        "score_min": 0.6138377049180329
+      },
+      {
+        "calibrated_win_rate": 0.5845238095238096,
+        "count": 21,
+        "mean_score": 0.8412445114078754,
+        "observed_win_rate": 0.5795238095238096,
+        "score_max": 0.9299999999999999,
+        "score_min": 0.764369262276356
+      }
+    ],
+    "score_field": "selection_score",
+    "source_case_count": 105
+  },
+  "base_score_field": "selection_score",
+  "coefficients": {
+    "average_nonland_cmc": 0.01302532270831062,
+    "board_wipe_count": 0.0012302744052070384,
+    "card_draw_count": -0.001760548423202418,
+    "expected_compounded_mana_spent": -0.008866210560536008,
+    "high_curve_nonland_count": -0.005874637428324287,
+    "land_count": -0.0005672986303950473,
+    "low_curve_nonland_count": 0.008618813441089088,
+    "median_nonland_cmc": 0.005451231257387732,
+    "predicted_win_rate": -0.017690672509610143,
+    "ramp_count": 0.0,
+    "removal_count": 0.007863251268434254,
+    "selection_score": 0.021119775925287607,
+    "structure_penalty": 0.004465427172924082,
+    "win_condition_count": 0.012834963848797445
+  },
+  "feature_means": {
+    "average_nonland_cmc": 3.0353705522399337,
+    "board_wipe_count": 2.8666666666666667,
+    "card_draw_count": 16.895238095238096,
+    "expected_compounded_mana_spent": 65.97085714285714,
+    "high_curve_nonland_count": 10.99047619047619,
+    "land_count": 37.87619047619047,
+    "low_curve_nonland_count": 24.97142857142857,
+    "median_nonland_cmc": 2.9952380952380953,
+    "predicted_win_rate": 0.733455604117118,
+    "ramp_count": 12.0,
+    "removal_count": 11.942857142857143,
+    "selection_score": 0.4669077174433608,
+    "structure_penalty": 0.4098418561607615,
+    "win_condition_count": 6.666666666666667
+  },
+  "feature_names": [
+    "predicted_win_rate",
+    "selection_score",
+    "structure_penalty",
+    "land_count",
+    "ramp_count",
+    "card_draw_count",
+    "removal_count",
+    "board_wipe_count",
+    "win_condition_count",
+    "average_nonland_cmc",
+    "median_nonland_cmc",
+    "low_curve_nonland_count",
+    "high_curve_nonland_count",
+    "expected_compounded_mana_spent"
+  ],
+  "feature_scales": {
+    "average_nonland_cmc": 0.17372981222102923,
+    "board_wipe_count": 0.9468410302199289,
+    "card_draw_count": 2.3377800194845397,
+    "expected_compounded_mana_spent": 1.8729615531536778,
+    "high_curve_nonland_count": 2.447526401804145,
+    "land_count": 0.32936412315791586,
+    "low_curve_nonland_count": 2.699055012255896,
+    "median_nonland_cmc": 0.04856209060564557,
+    "predicted_win_rate": 0.42400128490409844,
+    "ramp_count": 1.0,
+    "removal_count": 2.292133842300752,
+    "selection_score": 0.30301957162006093,
+    "structure_penalty": 0.1894361087600409,
+    "win_condition_count": 1.1925695879998879
+  },
+  "intercept": 2.1041014462306476e-17,
+  "l2_regularization": 1.0,
+  "source_case_count": 105,
+  "training_bias": 1.0573552615477682e-18,
+  "training_mad": 0.058247843669532395
+}

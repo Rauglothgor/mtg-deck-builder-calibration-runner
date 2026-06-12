@@ -11,10 +11,15 @@ from deckbuilder.config import get_settings
 from deckbuilder.db.session import reset_database
 from deckbuilder.experiment.forge_calibrator import (
     ScoreField,
+    evaluate_outcome_model,
     fit_empirical_calibrator,
+    fit_forge_outcome_model,
     load_empirical_calibrator,
+    load_forge_outcome_model,
     load_observations_from_artifacts,
+    load_outcome_observations_from_artifacts,
     write_empirical_calibrator,
+    write_forge_outcome_model,
 )
 from deckbuilder.experiment.orchestrator import run_experiment, run_score_band_experiment
 from deckbuilder.forge.runner import run_sim
@@ -262,9 +267,17 @@ def experiment_run_score_bands_command(
             help="Optional empirical Forge calibrator JSON to apply during selection.",
         ),
     ] = None,
+    forge_outcome_model: Annotated[
+        Path | None,
+        typer.Option(
+            "--forge-outcome-model",
+            help="Optional learned Forge-outcome model JSON to apply during selection.",
+        ),
+    ] = None,
 ) -> None:
     """Run calibration with rank-based surrogate score-band sampling."""
     calibrator = load_empirical_calibrator(forge_calibrator) if forge_calibrator else None
+    outcome_model = load_forge_outcome_model(forge_outcome_model) if forge_outcome_model else None
     outcome = run_score_band_experiment(
         commander_name=commander,
         n_decks=n_decks,
@@ -275,6 +288,7 @@ def experiment_run_score_bands_command(
         candidate_pool_size=candidate_pool_size,
         band_count=band_count,
         forge_calibrator=calibrator,
+        forge_outcome_model=outcome_model,
     )
     typer.echo(f"experiment_run_id={outcome.experiment_run_id}")
     typer.echo(f"decision={outcome.calibration.decision}")
@@ -319,6 +333,85 @@ def experiment_fit_calibrator_command(
     typer.echo(f"score_field={calibrator.score_field}")
     typer.echo(f"bins={len(calibrator.bins)}")
     typer.echo(f"calibrator_path={output}")
+
+
+@experiment_app.command("fit-outcome-model")
+def experiment_fit_outcome_model_command(
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option(
+            "--artifacts-dir",
+            help=(
+                "Directory containing downloaded markdown, .selection.csv, "
+                "and .structure.csv artifacts."
+            ),
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(help="Output path for the learned Forge-outcome model JSON artifact."),
+    ],
+    base_calibrator: Annotated[
+        Path | None,
+        typer.Option(
+            "--base-calibrator",
+            help="Optional empirical Forge calibrator JSON used as the residual base.",
+        ),
+    ] = None,
+    l2_regularization: Annotated[
+        float,
+        typer.Option("--l2-regularization", help="Ridge regularization strength."),
+    ] = 5.0,
+) -> None:
+    """Fit a learned Forge-outcome model from validation artifacts."""
+    observations = load_outcome_observations_from_artifacts(artifacts_dir)
+    calibrator = load_empirical_calibrator(base_calibrator) if base_calibrator else None
+    model = fit_forge_outcome_model(
+        observations,
+        base_calibrator=calibrator,
+        l2_regularization=l2_regularization,
+    )
+    evaluation = evaluate_outcome_model(model, observations)
+    write_forge_outcome_model(model, output)
+    typer.echo(f"observations={model.source_case_count}")
+    typer.echo(f"features={len(model.feature_names)}")
+    typer.echo(f"training_mad={evaluation.mean_absolute_deviation:.4f}")
+    typer.echo(f"training_bias={evaluation.bias:.4f}")
+    typer.echo(f"model_path={output}")
+
+
+@experiment_app.command("evaluate-outcome-model")
+def experiment_evaluate_outcome_model_command(
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option(
+            "--artifacts-dir",
+            help=(
+                "Directory containing downloaded markdown, .selection.csv, "
+                "and .structure.csv artifacts."
+            ),
+        ),
+    ],
+    model_path: Annotated[
+        Path,
+        typer.Option("--model", help="Forge-outcome model JSON artifact to evaluate."),
+    ],
+) -> None:
+    """Evaluate a learned Forge-outcome model against validation artifacts."""
+    observations = load_outcome_observations_from_artifacts(artifacts_dir)
+    model = load_forge_outcome_model(model_path)
+    evaluation = evaluate_outcome_model(model, observations)
+    typer.echo(f"observations={evaluation.case_count}")
+    typer.echo(f"mean_prediction={evaluation.mean_prediction:.4f}")
+    typer.echo(f"mean_actual={evaluation.mean_actual:.4f}")
+    typer.echo(f"mad={evaluation.mean_absolute_deviation:.4f}")
+    typer.echo(f"bias={evaluation.bias:.4f}")
+    typer.echo(f"overconfidence_rate_20={evaluation.overconfidence_rate_20:.4f}")
+    typer.echo(f"overconfidence_rate_30={evaluation.overconfidence_rate_30:.4f}")
+    typer.echo(f"underconfidence_rate_20={evaluation.underconfidence_rate_20:.4f}")
+    typer.echo(f"underconfidence_rate_30={evaluation.underconfidence_rate_30:.4f}")
+    typer.echo(f"pearson={evaluation.pearson:.4f}")
+    typer.echo(f"spearman={evaluation.spearman:.4f}")
 
 
 def _parse_score_field(score_field: str) -> ScoreField:

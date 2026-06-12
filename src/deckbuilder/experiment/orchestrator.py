@@ -23,7 +23,11 @@ from deckbuilder.db.models import (
     SimResult as SimRow,
 )
 from deckbuilder.db.session import get_session
-from deckbuilder.experiment.forge_calibrator import EmpiricalForgeCalibrator
+from deckbuilder.experiment.forge_calibrator import (
+    EmpiricalForgeCalibrator,
+    ForgeOutcomeModel,
+    outcome_features_from_diagnostics,
+)
 from deckbuilder.experiment.metrics import CalibrationReport, compute_calibration
 from deckbuilder.experiment.structure import (
     DeckStructureDiagnostics,
@@ -308,6 +312,7 @@ def _build_candidate_pool(
     seed_start: int,
     candidate_pool_size: int,
     forge_calibrator: EmpiricalForgeCalibrator | None = None,
+    forge_outcome_model: ForgeOutcomeModel | None = None,
 ) -> list[CandidateDeck]:
     candidates: list[CandidateDeck] = []
     seen_decks: set[tuple[str, ...]] = set()
@@ -321,9 +326,20 @@ def _build_candidate_pool(
         predicted = score_deck(commander_name, deck_ids, fit_run_id=fit_run_id)
         diagnostics = analyze_deck_structure(deck_ids, commander_name, ecms_seed=seed)
         structure_penalty = structural_score_penalty(diagnostics)
-        selection_score = structural_adjusted_score(predicted, diagnostics)
-        if forge_calibrator is not None:
-            selection_score = forge_calibrator.predict(selection_score)
+        structural_selection_score = structural_adjusted_score(predicted, diagnostics)
+        if forge_outcome_model is not None:
+            selection_score = forge_outcome_model.predict_features(
+                outcome_features_from_diagnostics(
+                    predicted_win_rate=predicted,
+                    selection_score=structural_selection_score,
+                    structure_penalty=structure_penalty,
+                    diagnostics=diagnostics,
+                )
+            )
+        elif forge_calibrator is not None:
+            selection_score = forge_calibrator.predict(structural_selection_score)
+        else:
+            selection_score = structural_selection_score
         candidates.append(
             CandidateDeck(
                 seed=seed,
@@ -592,6 +608,7 @@ def run_score_band_experiment(
     candidate_pool_size: int = 100,
     band_count: int = 5,
     forge_calibrator: EmpiricalForgeCalibrator | None = None,
+    forge_outcome_model: ForgeOutcomeModel | None = None,
 ) -> ExperimentOutcome:
     """Run calibration by sampling generated decks across surrogate score bands."""
     if n_decks <= 0:
@@ -638,6 +655,7 @@ def run_score_band_experiment(
                 seed_start=seed_start,
                 candidate_pool_size=candidate_pool_size,
                 forge_calibrator=forge_calibrator,
+                forge_outcome_model=forge_outcome_model,
             )
             selected_candidates = _select_score_band_candidates(
                 candidates,

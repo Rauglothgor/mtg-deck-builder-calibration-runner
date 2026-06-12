@@ -43,6 +43,10 @@ on:
         description: "Optional empirical Forge calibrator JSON path for score-band selection"
         required: false
         default: ""
+      forge_outcome_model:
+        description: "Optional learned Forge-outcome model JSON path for score-band selection"
+        required: false
+        default: ""
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -196,13 +200,17 @@ jobs:
           CANDIDATE_POOL_SIZE: ${{ inputs.candidate_pool_size }}
           BAND_COUNT: ${{ inputs.band_count }}
           FORGE_CALIBRATOR: ${{ inputs.forge_calibrator }}
+          FORGE_OUTCOME_MODEL: ${{ inputs.forge_outcome_model }}
         run: |
           seed_start=$((42 + SHARD * 10000))
           mkdir -p data/reports
           if [ "$SAMPLING_MODE" = "score-bands" ]; then
-            forge_calibrator_args=()
+            selection_model_args=()
+            if [ -n "$FORGE_OUTCOME_MODEL" ]; then
+              selection_model_args=(--forge-outcome-model "$FORGE_OUTCOME_MODEL")
+            fi
             if [ -n "$FORGE_CALIBRATOR" ]; then
-              forge_calibrator_args=(--forge-calibrator "$FORGE_CALIBRATOR")
+              selection_model_args=(--forge-calibrator "$FORGE_CALIBRATOR" "${selection_model_args[@]}")
             fi
             uv run deckbuilder experiment run-score-bands \
               --commander "Atraxa, Praetors' Voice" \
@@ -213,7 +221,7 @@ jobs:
               --candidate-pool-size "$CANDIDATE_POOL_SIZE" \
               --band-count "$BAND_COUNT" \
               --output "data/reports/v0_5_calibration_shard_${SHARD}.md" \
-              "${forge_calibrator_args[@]}"
+              "${selection_model_args[@]}"
           elif [ "$SAMPLING_MODE" = "elite" ]; then
             uv run deckbuilder experiment run \
               --commander "Atraxa, Praetors' Voice" \
