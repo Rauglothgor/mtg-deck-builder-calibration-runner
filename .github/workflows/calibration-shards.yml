@@ -39,6 +39,10 @@ on:
         description: "Skip ruff/format/mypy validation for verified shard reruns"
         required: true
         default: "false"
+      forge_calibrator:
+        description: "Optional empirical Forge calibrator JSON path for score-band selection"
+        required: false
+        default: ""
 
 concurrency:
   group: calibration-shards-${{ github.ref }}
@@ -191,10 +195,15 @@ jobs:
           SAMPLING_MODE: ${{ inputs.sampling_mode }}
           CANDIDATE_POOL_SIZE: ${{ inputs.candidate_pool_size }}
           BAND_COUNT: ${{ inputs.band_count }}
+          FORGE_CALIBRATOR: ${{ inputs.forge_calibrator }}
         run: |
           seed_start=$((42 + SHARD * 10000))
           mkdir -p data/reports
           if [ "$SAMPLING_MODE" = "score-bands" ]; then
+            forge_calibrator_args=()
+            if [ -n "$FORGE_CALIBRATOR" ]; then
+              forge_calibrator_args=(--forge-calibrator "$FORGE_CALIBRATOR")
+            fi
             uv run deckbuilder experiment run-score-bands \
               --commander "Atraxa, Praetors' Voice" \
               --n-decks "$DECKS_PER_SHARD" \
@@ -203,7 +212,8 @@ jobs:
               --seed-start "$seed_start" \
               --candidate-pool-size "$CANDIDATE_POOL_SIZE" \
               --band-count "$BAND_COUNT" \
-              --output "data/reports/v0_5_calibration_shard_${SHARD}.md"
+              --output "data/reports/v0_5_calibration_shard_${SHARD}.md" \
+              "${forge_calibrator_args[@]}"
           elif [ "$SAMPLING_MODE" = "elite" ]; then
             uv run deckbuilder experiment run \
               --commander "Atraxa, Praetors' Voice" \

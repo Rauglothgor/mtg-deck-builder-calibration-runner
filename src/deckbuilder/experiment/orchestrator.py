@@ -23,6 +23,7 @@ from deckbuilder.db.models import (
     SimResult as SimRow,
 )
 from deckbuilder.db.session import get_session
+from deckbuilder.experiment.forge_calibrator import EmpiricalForgeCalibrator
 from deckbuilder.experiment.metrics import CalibrationReport, compute_calibration
 from deckbuilder.experiment.structure import (
     DeckStructureDiagnostics,
@@ -306,6 +307,7 @@ def _build_candidate_pool(
     fit_run_id: UUID,
     seed_start: int,
     candidate_pool_size: int,
+    forge_calibrator: EmpiricalForgeCalibrator | None = None,
 ) -> list[CandidateDeck]:
     candidates: list[CandidateDeck] = []
     seen_decks: set[tuple[str, ...]] = set()
@@ -320,6 +322,8 @@ def _build_candidate_pool(
         diagnostics = analyze_deck_structure(deck_ids, commander_name, ecms_seed=seed)
         structure_penalty = structural_score_penalty(diagnostics)
         selection_score = structural_adjusted_score(predicted, diagnostics)
+        if forge_calibrator is not None:
+            selection_score = forge_calibrator.predict(selection_score)
         candidates.append(
             CandidateDeck(
                 seed=seed,
@@ -587,6 +591,7 @@ def run_score_band_experiment(
     seed_start: int = 42,
     candidate_pool_size: int = 100,
     band_count: int = 5,
+    forge_calibrator: EmpiricalForgeCalibrator | None = None,
 ) -> ExperimentOutcome:
     """Run calibration by sampling generated decks across surrogate score bands."""
     if n_decks <= 0:
@@ -632,6 +637,7 @@ def run_score_band_experiment(
                 fit_run_id=fit_run_id,
                 seed_start=seed_start,
                 candidate_pool_size=candidate_pool_size,
+                forge_calibrator=forge_calibrator,
             )
             selected_candidates = _select_score_band_candidates(
                 candidates,

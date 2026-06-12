@@ -1,7 +1,7 @@
 """CLI entrypoints for the deck builder experiment."""
 
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
 from alembic import command
@@ -9,7 +9,13 @@ from alembic.config import Config
 
 from deckbuilder.config import get_settings
 from deckbuilder.db.session import reset_database
-from deckbuilder.embedding.encoder import MODEL_NAME, embed_all_cards, nearest_neighbors
+from deckbuilder.experiment.forge_calibrator import (
+    ScoreField,
+    fit_empirical_calibrator,
+    load_empirical_calibrator,
+    load_observations_from_artifacts,
+    write_empirical_calibrator,
+)
 from deckbuilder.experiment.orchestrator import run_experiment, run_score_band_experiment
 from deckbuilder.forge.runner import run_sim
 from deckbuilder.ingest.archidekt import collect_archidekt_corpus
@@ -118,6 +124,8 @@ def surrogate_fit_command(commander_name: str) -> None:
 @embed_app.command("cards")
 def embed_cards_command() -> None:
     """Generate embeddings for all cards missing them for the configured model."""
+    from deckbuilder.embedding.encoder import MODEL_NAME, embed_all_cards
+
     inserted, total = embed_all_cards()
     typer.echo(f"Embedded {inserted} cards with {MODEL_NAME}; total embeddings now {total}")
 
@@ -125,6 +133,8 @@ def embed_cards_command() -> None:
 @embed_app.command("neighbors")
 def embed_neighbors_command(card_name: str, limit: int = 10) -> None:
     """Print nearest-neighbor cards for a named card."""
+    from deckbuilder.embedding.encoder import nearest_neighbors
+
     for neighbor_name, distance in nearest_neighbors(card_name, limit=limit):
         typer.echo(f"{neighbor_name}\t{distance:.6f}")
 
@@ -245,8 +255,16 @@ def experiment_run_score_bands_command(
         int,
         typer.Option(help="Number of rank-based score bands to sample from."),
     ] = 5,
+    forge_calibrator: Annotated[
+        Path | None,
+        typer.Option(
+            "--forge-calibrator",
+            help="Optional empirical Forge calibrator JSON to apply during selection.",
+        ),
+    ] = None,
 ) -> None:
     """Run calibration with rank-based surrogate score-band sampling."""
+    calibrator = load_empirical_calibrator(forge_calibrator) if forge_calibrator else None
     outcome = run_score_band_experiment(
         commander_name=commander,
         n_decks=n_decks,
@@ -256,11 +274,58 @@ def experiment_run_score_bands_command(
         seed_start=seed_start,
         candidate_pool_size=candidate_pool_size,
         band_count=band_count,
+        forge_calibrator=calibrator,
     )
     typer.echo(f"experiment_run_id={outcome.experiment_run_id}")
     typer.echo(f"decision={outcome.calibration.decision}")
     typer.echo(f"retry_count={outcome.retry_count}")
     typer.echo(f"report_path={outcome.report_path}")
+
+
+@experiment_app.command("fit-calibrator")
+def experiment_fit_calibrator_command(
+    artifacts_dir: Annotated[
+        Path,
+        typer.Option(
+            "--artifacts-dir",
+            help=(
+                "Directory containing downloaded markdown, .selection.csv, "
+                "and .structure.csv artifacts."
+            ),
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option(help="Output path for the empirical Forge calibrator JSON artifact."),
+    ],
+    score_field: Annotated[
+        str, typer.Option(help="Score field to calibrate against Forge outcomes.")
+    ] = ("selection_score"),
+    bin_count: Annotated[
+        int,
+        typer.Option("--bin-count", help="Number of empirical score bins."),
+    ] = 5,
+) -> None:
+    """Fit an empirical Forge calibrator from validation artifacts."""
+    observations = load_observations_from_artifacts(artifacts_dir)
+    parsed_score_field = _parse_score_field(score_field)
+    calibrator = fit_empirical_calibrator(
+        observations,
+        score_field=parsed_score_field,
+        bin_count=bin_count,
+    )
+    write_empirical_calibrator(calibrator, output)
+    typer.echo(f"observations={calibrator.source_case_count}")
+    typer.echo(f"score_field={calibrator.score_field}")
+    typer.echo(f"bins={len(calibrator.bins)}")
+    typer.echo(f"calibrator_path={output}")
+
+
+def _parse_score_field(score_field: str) -> ScoreField:
+    if score_field not in {"predicted_win_rate", "selection_score"}:
+        msg = "score_field must be one of: predicted_win_rate, selection_score"
+        raise typer.BadParameter(msg)
+    return cast(ScoreField, score_field)
 
 
 def main() -> None:
