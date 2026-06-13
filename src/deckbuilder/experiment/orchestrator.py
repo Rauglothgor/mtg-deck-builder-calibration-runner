@@ -123,6 +123,13 @@ def _candidate_selection_score(candidate: CandidateDeck) -> float:
     )
 
 
+def _selection_pool_after_optional_rerank(candidates: list[CandidateDeck]) -> list[CandidateDeck]:
+    reranked = [
+        candidate for candidate in candidates if candidate.pre_rerank_selection_score is not None
+    ]
+    return reranked if reranked else candidates
+
+
 def _resolve_commander(session: Session, commander_name: str) -> UUID:
     row = session.execute(
         select(Card.oracle_id).where(Card.name == commander_name)
@@ -881,6 +888,7 @@ def run_score_band_experiment(
     manifest_rows: list[dict[str, str | int | float]] = []
     rerank_rows: list[dict[str, str | int | float | bool]] = []
     structure_rows: list[dict[str, str | int | float]] = []
+    report_cases: list[ExperimentCase] = []
     retry_count = 0
 
     try:
@@ -909,14 +917,16 @@ def run_score_band_experiment(
             retry_count += rerank_outcome.retry_count
             if rerank_outcome.retry_count:
                 _record_run_retry_count(experiment_run_id, retry_count)
+            selection_pool = _selection_pool_after_optional_rerank(candidates)
             selected_candidates = _select_score_band_candidates(
-                candidates,
+                selection_pool,
                 n_decks=n_decks,
                 band_count=band_count,
             )
             print(
                 f"selected {len(selected_candidates)} candidates from "
-                f"{len(candidates)} generated candidates across {band_count} score bands",
+                f"{len(selection_pool)} eligible candidates "
+                f"({len(candidates)} generated) across {band_count} score bands",
                 flush=True,
             )
 
@@ -1046,7 +1056,19 @@ def run_score_band_experiment(
                         "including partial result",
                         flush=True,
                     )
-                pairs.append((selected.predicted_win_rate, sim_row.actual_win_rate))
+                report_score = selected.selection_score
+                pairs.append((report_score, sim_row.actual_win_rate))
+                report_cases.append(
+                    ExperimentCase(
+                        generated_deck_id=str(generated_deck_id),
+                        predicted_win_rate=report_score,
+                        actual_win_rate=sim_row.actual_win_rate,
+                        wins=sim_row.wins,
+                        losses=sim_row.losses,
+                        draws=sim_row.draws,
+                        opponent_deck_name=sim_row.opponent_deck_name,
+                    )
+                )
                 print(
                     f"deck {deck_index} finished: "
                     f"matches_played={sim_row.matches_played}/{matches} "
@@ -1059,7 +1081,7 @@ def run_score_band_experiment(
                 row["forge_build_id"] = settings.forge_build_id
 
         calibration = compute_calibration(pairs)
-        cases = _load_report_cases(experiment_run_id)
+        cases = report_cases
         with get_session() as session:
             persisted_run = session.get(ExperimentRun, experiment_run_id)
             if persisted_run is None:

@@ -7,6 +7,7 @@ from _pytest.monkeypatch import MonkeyPatch
 from deckbuilder.experiment.orchestrator import (
     CandidateDeck,
     _select_score_band_candidates,
+    _selection_pool_after_optional_rerank,
     _simulation_rerank_candidates,
     _simulation_rerank_score,
 )
@@ -183,6 +184,26 @@ def test_simulation_rerank_candidates_updates_shortlist_scores(
     assert len(outcome.manifest_rows) == 2
     assert [row["seed"] for row in outcome.manifest_rows] == [1, 2]
     assert [call[2] for call in fake_forge.calls] == [1, 1, 1, 1]
+
+
+def test_selection_pool_after_optional_rerank_uses_attempted_shortlist() -> None:
+    reranked = CandidateDeck(
+        seed=1,
+        card_oracle_ids=[uuid4()],
+        predicted_win_rate=1.0,
+        selection_score=0.55,
+        pre_rerank_selection_score=0.80,
+        rerank_score=0.55,
+    )
+    not_reranked = CandidateDeck(
+        seed=2,
+        card_oracle_ids=[uuid4()],
+        predicted_win_rate=0.9,
+        selection_score=0.75,
+    )
+
+    assert _selection_pool_after_optional_rerank([not_reranked, reranked]) == [reranked]
+    assert _selection_pool_after_optional_rerank([not_reranked]) == [not_reranked]
 
 
 class _FakeForgeRunner:
