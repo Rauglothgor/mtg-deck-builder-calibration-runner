@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -75,6 +75,13 @@ class CandidateDeck:
     selection_score: float | None = None
     structure_penalty: float = 0.0
     diagnostics: DeckStructureDiagnostics | None = None
+    pre_rerank_selection_score: float | None = None
+    rerank_matches_played: int = 0
+    rerank_wins: int = 0
+    rerank_losses: int = 0
+    rerank_draws: int = 0
+    rerank_sim_win_rate: float | None = None
+    rerank_score: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +97,22 @@ class SelectedCandidateDeck:
     band_min_score: float
     band_max_score: float
     diagnostics: DeckStructureDiagnostics | None = None
+    pre_rerank_selection_score: float | None = None
+    rerank_matches_played: int = 0
+    rerank_wins: int = 0
+    rerank_losses: int = 0
+    rerank_draws: int = 0
+    rerank_sim_win_rate: float | None = None
+    rerank_score: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationRerankOutcome:
+    """Candidate pool after optional lightweight Forge reranking."""
+
+    candidates: list[CandidateDeck]
+    manifest_rows: list[dict[str, str | int | float | bool]]
+    retry_count: int
 
 
 def _candidate_selection_score(candidate: CandidateDeck) -> float:
@@ -298,6 +321,13 @@ def _select_score_band_candidates(
                     band_min_score=_candidate_selection_score(bucket[0]),
                     band_max_score=_candidate_selection_score(bucket[-1]),
                     diagnostics=candidate.diagnostics,
+                    pre_rerank_selection_score=candidate.pre_rerank_selection_score,
+                    rerank_matches_played=candidate.rerank_matches_played,
+                    rerank_wins=candidate.rerank_wins,
+                    rerank_losses=candidate.rerank_losses,
+                    rerank_draws=candidate.rerank_draws,
+                    rerank_sim_win_rate=candidate.rerank_sim_win_rate,
+                    rerank_score=candidate.rerank_score,
                 )
             )
 
@@ -360,6 +390,150 @@ def _build_candidate_pool(
     return candidates
 
 
+def _simulation_rerank_score(
+    *,
+    prior_score: float,
+    wins: int,
+    draws: int,
+    matches_played: int,
+    prior_weight: float,
+) -> float:
+    """Blend learned prior score with a lightweight Forge observation."""
+    if prior_weight < 0:
+        msg = f"prior_weight must be non-negative, got {prior_weight}"
+        raise ValueError(msg)
+    if matches_played <= 0:
+        return prior_score
+    sim_win_rate = _actual_win_rate_from_counts(wins, draws, matches_played)
+    denominator = prior_weight + matches_played
+    if denominator == 0:
+        return sim_win_rate
+    return ((prior_score * prior_weight) + (sim_win_rate * matches_played)) / denominator
+
+
+def _simulation_rerank_candidates(
+    *,
+    candidates: list[CandidateDeck],
+    commander_oracle_id: UUID,
+    opponent_path: Path,
+    tmp_root: Path,
+    shortlist_size: int,
+    matches: int,
+    prior_weight: float,
+) -> SimulationRerankOutcome:
+    """Run lightweight Forge sims for the top model-scored candidates and rerank."""
+    if shortlist_size <= 0 or matches <= 0:
+        return SimulationRerankOutcome(
+            candidates=candidates,
+            manifest_rows=[],
+            retry_count=0,
+        )
+    if prior_weight < 0:
+        msg = f"prior_weight must be non-negative, got {prior_weight}"
+        raise ValueError(msg)
+
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: (_candidate_selection_score(candidate), -candidate.seed),
+        reverse=True,
+    )
+    shortlist = ranked[: min(shortlist_size, len(ranked))]
+    pre_rank_by_seed = {candidate.seed: index for index, candidate in enumerate(ranked, start=1)}
+    reranked_by_seed: dict[int, CandidateDeck] = {}
+    manifest_rows: list[dict[str, str | int | float | bool]] = []
+    retry_count = 0
+
+    for candidate in shortlist:
+        prior_score = _candidate_selection_score(candidate)
+        deck_path = tmp_root / f"rerank-{candidate.seed}.dck"
+        to_dck_format(commander_oracle_id, candidate.card_oracle_ids, deck_path)
+        wins = 0
+        losses = 0
+        draws = 0
+        failures = 0
+        for match_index in range(1, matches + 1):
+            try:
+                result = run_sim(
+                    deck_path,
+                    opponent_path,
+                    n_matches=1,
+                    seed=candidate.seed,
+                )
+            except Exception as exc:
+                failures += 1
+                retry_count += 1
+                print(
+                    f"rerank seed={candidate.seed} match {match_index} failed: {exc}",
+                    flush=True,
+                )
+                continue
+            wins += result.wins
+            losses += result.losses
+            draws += result.draws
+
+        matches_played = wins + losses + draws
+        sim_win_rate = (
+            _actual_win_rate_from_counts(wins, draws, matches_played) if matches_played else None
+        )
+        rerank_score = _simulation_rerank_score(
+            prior_score=prior_score,
+            wins=wins,
+            draws=draws,
+            matches_played=matches_played,
+            prior_weight=prior_weight,
+        )
+        reranked_candidate = replace(
+            candidate,
+            selection_score=rerank_score,
+            pre_rerank_selection_score=prior_score,
+            rerank_matches_played=matches_played,
+            rerank_wins=wins,
+            rerank_losses=losses,
+            rerank_draws=draws,
+            rerank_sim_win_rate=sim_win_rate,
+            rerank_score=rerank_score,
+        )
+        reranked_by_seed[candidate.seed] = reranked_candidate
+        manifest_rows.append(
+            {
+                "seed": candidate.seed,
+                "pre_rerank_rank": pre_rank_by_seed[candidate.seed],
+                "predicted_win_rate": candidate.predicted_win_rate,
+                "model_selection_score": prior_score,
+                "structure_penalty": candidate.structure_penalty,
+                "rerank_matches_requested": matches,
+                "rerank_matches_played": matches_played,
+                "rerank_wins": wins,
+                "rerank_losses": losses,
+                "rerank_draws": draws,
+                "rerank_sim_win_rate": sim_win_rate if sim_win_rate is not None else "",
+                "rerank_prior_weight": prior_weight,
+                "rerank_score": rerank_score,
+                "rerank_failures": failures,
+                "selected": False,
+                "generated_deck_id": "",
+                "score_band": "",
+            }
+        )
+        print(
+            "rerank complete: "
+            f"seed={candidate.seed} prior={prior_score:.4f} "
+            f"matches_played={matches_played}/{matches} "
+            f"sim_win_rate={sim_win_rate if sim_win_rate is not None else 'n/a'} "
+            f"rerank_score={rerank_score:.4f}",
+            flush=True,
+        )
+
+    reranked_candidates = [
+        reranked_by_seed.get(candidate.seed, candidate) for candidate in candidates
+    ]
+    return SimulationRerankOutcome(
+        candidates=reranked_candidates,
+        manifest_rows=manifest_rows,
+        retry_count=retry_count,
+    )
+
+
 def _write_score_band_manifest(
     output_path: Path,
     rows: list[dict[str, str | int | float]],
@@ -378,6 +552,51 @@ def _write_score_band_manifest(
                 "predicted_win_rate",
                 "selection_score",
                 "structure_penalty",
+                "pre_rerank_selection_score",
+                "rerank_matches_played",
+                "rerank_wins",
+                "rerank_losses",
+                "rerank_draws",
+                "rerank_sim_win_rate",
+                "rerank_score",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    return manifest_path
+
+
+def _write_sim_rerank_manifest(
+    output_path: Path,
+    rows: list[dict[str, str | int | float | bool]],
+) -> Path | None:
+    if not rows:
+        return None
+    manifest_path = output_path.with_suffix(".rerank.csv")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "seed",
+                "pre_rerank_rank",
+                "predicted_win_rate",
+                "model_selection_score",
+                "structure_penalty",
+                "rerank_matches_requested",
+                "rerank_matches_played",
+                "rerank_wins",
+                "rerank_losses",
+                "rerank_draws",
+                "rerank_sim_win_rate",
+                "rerank_prior_weight",
+                "rerank_score",
+                "rerank_failures",
+                "selected",
+                "generated_deck_id",
+                "score_band",
+                "forge_ai_profile",
+                "forge_build_id",
             ],
         )
         writer.writeheader()
@@ -612,6 +831,9 @@ def run_score_band_experiment(
     band_count: int = 5,
     forge_calibrator: EmpiricalForgeCalibrator | None = None,
     forge_outcome_model: ForgeOutcomeModel | None = None,
+    rerank_shortlist_size: int = 0,
+    rerank_matches: int = 0,
+    rerank_prior_weight: float = 20.0,
 ) -> ExperimentOutcome:
     """Run calibration by sampling generated decks across surrogate score bands."""
     if n_decks <= 0:
@@ -622,6 +844,15 @@ def run_score_band_experiment(
         raise ValueError(msg)
     if candidate_pool_size < n_decks:
         msg = f"candidate_pool_size must be at least n_decks, got {candidate_pool_size} < {n_decks}"
+        raise ValueError(msg)
+    if rerank_shortlist_size < 0:
+        msg = f"rerank_shortlist_size must be non-negative, got {rerank_shortlist_size}"
+        raise ValueError(msg)
+    if rerank_matches < 0:
+        msg = f"rerank_matches must be non-negative, got {rerank_matches}"
+        raise ValueError(msg)
+    if rerank_prior_weight < 0:
+        msg = f"rerank_prior_weight must be non-negative, got {rerank_prior_weight}"
         raise ValueError(msg)
 
     output_path = Path(output)
@@ -648,6 +879,7 @@ def run_score_band_experiment(
     sim_result_ids: list[UUID] = []
     pairs: list[tuple[float, float]] = []
     manifest_rows: list[dict[str, str | int | float]] = []
+    rerank_rows: list[dict[str, str | int | float | bool]] = []
     structure_rows: list[dict[str, str | int | float]] = []
     retry_count = 0
 
@@ -663,6 +895,20 @@ def run_score_band_experiment(
                 forge_calibrator=forge_calibrator,
                 forge_outcome_model=forge_outcome_model,
             )
+            rerank_outcome = _simulation_rerank_candidates(
+                candidates=candidates,
+                commander_oracle_id=commander_oracle_id,
+                opponent_path=opponent_path,
+                tmp_root=tmp_root,
+                shortlist_size=rerank_shortlist_size,
+                matches=rerank_matches,
+                prior_weight=rerank_prior_weight,
+            )
+            candidates = rerank_outcome.candidates
+            rerank_rows = rerank_outcome.manifest_rows
+            retry_count += rerank_outcome.retry_count
+            if rerank_outcome.retry_count:
+                _record_run_retry_count(experiment_run_id, retry_count)
             selected_candidates = _select_score_band_candidates(
                 candidates,
                 n_decks=n_decks,
@@ -696,8 +942,31 @@ def run_score_band_experiment(
                         "predicted_win_rate": selected.predicted_win_rate,
                         "selection_score": selected.selection_score,
                         "structure_penalty": selected.structure_penalty,
+                        "pre_rerank_selection_score": (
+                            selected.pre_rerank_selection_score
+                            if selected.pre_rerank_selection_score is not None
+                            else ""
+                        ),
+                        "rerank_matches_played": selected.rerank_matches_played,
+                        "rerank_wins": selected.rerank_wins,
+                        "rerank_losses": selected.rerank_losses,
+                        "rerank_draws": selected.rerank_draws,
+                        "rerank_sim_win_rate": (
+                            selected.rerank_sim_win_rate
+                            if selected.rerank_sim_win_rate is not None
+                            else ""
+                        ),
+                        "rerank_score": (
+                            selected.rerank_score if selected.rerank_score is not None else ""
+                        ),
                     }
                 )
+                for row in rerank_rows:
+                    if row["seed"] != selected.seed:
+                        continue
+                    row["selected"] = True
+                    row["generated_deck_id"] = str(generated_deck_id)
+                    row["score_band"] = selected.score_band
                 diagnostics = selected.diagnostics or analyze_deck_structure(
                     selected.card_oracle_ids,
                     commander_name,
@@ -785,6 +1054,9 @@ def run_score_band_experiment(
                     f"actual_win_rate={sim_row.actual_win_rate:.4f}",
                     flush=True,
                 )
+            for row in rerank_rows:
+                row["forge_ai_profile"] = settings.forge_ai_profile
+                row["forge_build_id"] = settings.forge_build_id
 
         calibration = compute_calibration(pairs)
         cases = _load_report_cases(experiment_run_id)
@@ -810,8 +1082,11 @@ def run_score_band_experiment(
                 output_path=output_path,
             )
         manifest_path = _write_score_band_manifest(output_path, manifest_rows)
+        rerank_manifest_path = _write_sim_rerank_manifest(output_path, rerank_rows)
         structure_path = write_structure_manifest(output_path, structure_rows)
         print(f"selection_manifest={manifest_path}", flush=True)
+        if rerank_manifest_path is not None:
+            print(f"rerank_manifest={rerank_manifest_path}", flush=True)
         print(f"structure_manifest={structure_path}", flush=True)
         return ExperimentOutcome(
             experiment_run_id=experiment_run_id,

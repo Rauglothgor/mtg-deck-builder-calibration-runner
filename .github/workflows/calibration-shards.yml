@@ -47,6 +47,18 @@ on:
         description: "Optional learned Forge-outcome model JSON path for score-band selection"
         required: false
         default: ""
+      rerank_shortlist_size:
+        description: "Top model-scored candidates to rerank with lightweight Forge sims"
+        required: true
+        default: "0"
+      rerank_matches:
+        description: "Lightweight Forge matches per shortlisted rerank candidate"
+        required: true
+        default: "0"
+      rerank_prior_weight:
+        description: "Equivalent prior match count assigned to model score during reranking"
+        required: true
+        default: "20"
       forge_installer_url:
         description: "Forge desktop installer .tar.bz2 URL; must match Forge report metadata"
         required: true
@@ -220,6 +232,9 @@ jobs:
           BAND_COUNT: ${{ inputs.band_count }}
           FORGE_CALIBRATOR: ${{ inputs.forge_calibrator }}
           FORGE_OUTCOME_MODEL: ${{ inputs.forge_outcome_model }}
+          RERANK_SHORTLIST_SIZE: ${{ inputs.rerank_shortlist_size }}
+          RERANK_MATCHES: ${{ inputs.rerank_matches }}
+          RERANK_PRIOR_WEIGHT: ${{ inputs.rerank_prior_weight }}
         run: |
           seed_start=$((42 + SHARD * 10000))
           mkdir -p data/reports
@@ -239,6 +254,9 @@ jobs:
               --seed-start "$seed_start" \
               --candidate-pool-size "$CANDIDATE_POOL_SIZE" \
               --band-count "$BAND_COUNT" \
+              --rerank-shortlist-size "$RERANK_SHORTLIST_SIZE" \
+              --rerank-matches "$RERANK_MATCHES" \
+              --rerank-prior-weight "$RERANK_PRIOR_WEIGHT" \
               --output "data/reports/v0_5_calibration_shard_${SHARD}.md" \
               "${selection_model_args[@]}"
           elif [ "$SAMPLING_MODE" = "elite" ]; then

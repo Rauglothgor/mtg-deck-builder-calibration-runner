@@ -274,6 +274,27 @@ def experiment_run_score_bands_command(
             help="Optional learned Forge-outcome model JSON to apply during selection.",
         ),
     ] = None,
+    rerank_shortlist_size: Annotated[
+        int,
+        typer.Option(
+            "--rerank-shortlist-size",
+            help="Top model-scored candidates to rerank with lightweight Forge sims.",
+        ),
+    ] = 0,
+    rerank_matches: Annotated[
+        int,
+        typer.Option(
+            "--rerank-matches",
+            help="Lightweight Forge matches per shortlisted rerank candidate.",
+        ),
+    ] = 0,
+    rerank_prior_weight: Annotated[
+        float,
+        typer.Option(
+            "--rerank-prior-weight",
+            help="Equivalent prior match count assigned to the model score during reranking.",
+        ),
+    ] = 20.0,
 ) -> None:
     """Run calibration with rank-based surrogate score-band sampling."""
     calibrator = load_empirical_calibrator(forge_calibrator) if forge_calibrator else None
@@ -289,6 +310,9 @@ def experiment_run_score_bands_command(
         band_count=band_count,
         forge_calibrator=calibrator,
         forge_outcome_model=outcome_model,
+        rerank_shortlist_size=rerank_shortlist_size,
+        rerank_matches=rerank_matches,
+        rerank_prior_weight=rerank_prior_weight,
     )
     typer.echo(f"experiment_run_id={outcome.experiment_run_id}")
     typer.echo(f"decision={outcome.calibration.decision}")
