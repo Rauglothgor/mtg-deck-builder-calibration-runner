@@ -85,7 +85,7 @@ on:
         default: "forge-daily-snapshot-2.0.13-SNAPSHOT-06.11-20260611T191203Z-temurin17-v1"
 
 concurrency:
-  group: calibration-shards-${{ github.ref }}
+  group: calibration-shards-${{ github.ref }}-${{ inputs.preset_lane || 'default' }}
   cancel-in-progress: false
 
 jobs:
