@@ -320,6 +320,9 @@ def write_structure_manifest(
         "generated_deck_id",
         "seed",
         "predicted_win_rate",
+        "preset_lane",
+        "theme_tags",
+        "theme_boost",
         *DeckStructureDiagnostics.__dataclass_fields__.keys(),
     ]
     with manifest_path.open("w", newline="", encoding="utf-8") as handle:

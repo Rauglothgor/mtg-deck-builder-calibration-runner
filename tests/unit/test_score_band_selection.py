@@ -10,8 +10,36 @@ from deckbuilder.experiment.orchestrator import (
     _selection_pool_after_optional_rerank,
     _simulation_rerank_candidates,
     _simulation_rerank_score,
+    _theme_match_boost_from_texts,
+    _theme_tags_for_preset,
+    _write_score_band_manifest,
+    _write_sim_rerank_manifest,
 )
 from deckbuilder.forge.parser import SimResult
+
+
+def test_theme_tags_for_preset_merges_and_deduplicates() -> None:
+    lane, tags = _theme_tags_for_preset(
+        "poison",
+        "Proliferate, draw",
+    )
+
+    assert lane == "poison"
+    assert tags == ("poison", "toxic", "infect", "proliferate", "draw")
+
+
+def test_theme_match_boost_is_bounded() -> None:
+    searchable_cards = [
+        "evolution sage creature landfall proliferate",
+        "ichor rats creature poison counter",
+        "sol ring artifact ramp",
+    ]
+
+    assert _theme_match_boost_from_texts(
+        searchable_cards,
+        ("proliferate", "poison", "ramp", "counter", "missing", "artifact", "creature"),
+    ) == pytest.approx(0.03)
+    assert _theme_match_boost_from_texts(searchable_cards, ("missing",)) == 0.0
 
 
 def test_select_score_band_candidates_samples_each_band() -> None:
@@ -204,6 +232,68 @@ def test_selection_pool_after_optional_rerank_uses_attempted_shortlist() -> None
 
     assert _selection_pool_after_optional_rerank([not_reranked, reranked]) == [reranked]
     assert _selection_pool_after_optional_rerank([not_reranked]) == [not_reranked]
+
+
+def test_score_band_manifests_include_preset_metadata(tmp_path: Path) -> None:
+    report_path = tmp_path / "report.md"
+    selection_path = _write_score_band_manifest(
+        report_path,
+        [
+            {
+                "generated_deck_id": "deck-1",
+                "seed": 1,
+                "score_band": 0,
+                "band_min_score": 0.5,
+                "band_max_score": 0.6,
+                "predicted_win_rate": 0.9,
+                "selection_score": 0.55,
+                "structure_penalty": 0.2,
+                "preset_lane": "poison",
+                "theme_tags": "poison|toxic|infect|proliferate",
+                "theme_boost": 0.02,
+                "pre_rerank_selection_score": 0.6,
+                "rerank_matches_played": 20,
+                "rerank_wins": 11,
+                "rerank_losses": 9,
+                "rerank_draws": 0,
+                "rerank_sim_win_rate": 0.55,
+                "rerank_score": 0.58,
+            },
+        ],
+    )
+    rerank_path = _write_sim_rerank_manifest(
+        report_path,
+        [
+            {
+                "seed": 1,
+                "pre_rerank_rank": 1,
+                "predicted_win_rate": 0.9,
+                "model_selection_score": 0.6,
+                "structure_penalty": 0.2,
+                "preset_lane": "poison",
+                "theme_tags": "poison|toxic|infect|proliferate",
+                "theme_boost": 0.02,
+                "rerank_matches_requested": 20,
+                "rerank_matches_played": 20,
+                "rerank_wins": 11,
+                "rerank_losses": 9,
+                "rerank_draws": 0,
+                "rerank_sim_win_rate": 0.55,
+                "rerank_prior_weight": 30,
+                "rerank_score": 0.58,
+                "rerank_failures": 0,
+                "selected": True,
+                "generated_deck_id": "deck-1",
+                "score_band": 0,
+                "forge_ai_profile": "forge-daily-snapshot",
+                "forge_build_id": "2.0.13-SNAPSHOT-06.11-2026-06-11T19:12:03Z",
+            },
+        ],
+    )
+
+    assert "preset_lane,theme_tags,theme_boost" in selection_path.read_text(encoding="utf-8")
+    assert rerank_path is not None
+    assert "preset_lane,theme_tags,theme_boost" in rerank_path.read_text(encoding="utf-8")
 
 
 class _FakeForgeRunner:

@@ -59,6 +59,14 @@ on:
         description: "Equivalent prior match count assigned to model score during reranking"
         required: true
         default: "20"
+      preset_lane:
+        description: "Optional product preset lane for validation artifact metadata and theme boost"
+        required: false
+        default: ""
+      theme_tags:
+        description: "Optional comma-separated product theme tags for the lexical boost"
+        required: false
+        default: ""
       forge_installer_url:
         description: "Forge desktop installer .tar.bz2 URL; must match Forge report metadata"
         required: true
@@ -235,6 +243,8 @@ jobs:
           RERANK_SHORTLIST_SIZE: ${{ inputs.rerank_shortlist_size }}
           RERANK_MATCHES: ${{ inputs.rerank_matches }}
           RERANK_PRIOR_WEIGHT: ${{ inputs.rerank_prior_weight }}
+          PRESET_LANE: ${{ inputs.preset_lane }}
+          THEME_TAGS: ${{ inputs.theme_tags }}
         run: |
           seed_start=$((42 + SHARD * 10000))
           mkdir -p data/reports
@@ -257,6 +267,8 @@ jobs:
               --rerank-shortlist-size "$RERANK_SHORTLIST_SIZE" \
               --rerank-matches "$RERANK_MATCHES" \
               --rerank-prior-weight "$RERANK_PRIOR_WEIGHT" \
+              --preset-lane "$PRESET_LANE" \
+              --theme-tags "$THEME_TAGS" \
               --output "data/reports/v0_5_calibration_shard_${SHARD}.md" \
               "${selection_model_args[@]}"
           elif [ "$SAMPLING_MODE" = "elite" ]; then

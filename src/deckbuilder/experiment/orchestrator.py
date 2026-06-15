@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,6 +48,15 @@ from deckbuilder.surrogate.awr import score_deck
 DEFAULT_OPPONENT_NAME = "alela.dck"
 DEFAULT_ATTEMPT_CAP = 500
 ELITE_THRESHOLD = 0.70
+THEME_BOOST_PER_TAG = 0.005
+THEME_BOOST_CAP = 0.03
+PRESET_LANE_TAGS = {
+    "balanced": ("value", "interaction", "ramp"),
+    "proliferate-counters": ("proliferate", "counter", "loyalty"),
+    "poison": ("poison", "toxic", "infect", "proliferate"),
+    "superfriends": ("planeswalker", "loyalty", "proliferate"),
+    "lifegain-value": ("lifegain", "draw", "recursion"),
+}
 
 
 def _bundled_deck_dir() -> Path:
@@ -75,6 +85,9 @@ class CandidateDeck:
     selection_score: float | None = None
     structure_penalty: float = 0.0
     diagnostics: DeckStructureDiagnostics | None = None
+    preset_lane: str = ""
+    theme_tags: tuple[str, ...] = ()
+    theme_boost: float = 0.0
     pre_rerank_selection_score: float | None = None
     rerank_matches_played: int = 0
     rerank_wins: int = 0
@@ -97,6 +110,9 @@ class SelectedCandidateDeck:
     band_min_score: float
     band_max_score: float
     diagnostics: DeckStructureDiagnostics | None = None
+    preset_lane: str = ""
+    theme_tags: tuple[str, ...] = ()
+    theme_boost: float = 0.0
     pre_rerank_selection_score: float | None = None
     rerank_matches_played: int = 0
     rerank_wins: int = 0
@@ -121,6 +137,61 @@ def _candidate_selection_score(candidate: CandidateDeck) -> float:
         if candidate.selection_score is not None
         else candidate.predicted_win_rate
     )
+
+
+def _normalize_theme_tags(raw_tags: str | tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
+    if raw_tags is None:
+        return ()
+    if isinstance(raw_tags, str):
+        candidates = re.split(r"[,;\n|]", raw_tags)
+    else:
+        candidates = list(raw_tags)
+    tags: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        tag = " ".join(str(candidate).strip().lower().split())
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+    return tuple(tags)
+
+
+def _theme_tags_for_preset(
+    preset_lane: str | None,
+    theme_tags: str | tuple[str, ...] | list[str] | None,
+) -> tuple[str, tuple[str, ...]]:
+    lane = (preset_lane or "").strip().lower()
+    if lane and lane not in PRESET_LANE_TAGS:
+        msg = f"Unsupported preset_lane={preset_lane!r}"
+        raise ValueError(msg)
+    return lane, _normalize_theme_tags(
+        [*PRESET_LANE_TAGS.get(lane, ()), *_normalize_theme_tags(theme_tags)]
+    )
+
+
+def _theme_match_boost_from_texts(
+    searchable_cards: list[str], theme_tags: tuple[str, ...]
+) -> float:
+    if not theme_tags:
+        return 0.0
+    matched_tags = {
+        tag for tag in theme_tags if any(tag in searchable for searchable in searchable_cards)
+    }
+    return min(THEME_BOOST_CAP, len(matched_tags) * THEME_BOOST_PER_TAG)
+
+
+def _theme_match_boost(card_oracle_ids: list[UUID], theme_tags: tuple[str, ...]) -> float:
+    if not theme_tags:
+        return 0.0
+    with get_session() as session:
+        rows = session.execute(
+            select(Card.name, Card.type_line, Card.oracle_text).where(
+                Card.oracle_id.in_(card_oracle_ids)
+            )
+        ).all()
+    searchable_cards = [" ".join(str(value or "") for value in row).lower() for row in rows]
+    return _theme_match_boost_from_texts(searchable_cards, theme_tags)
 
 
 def _selection_pool_after_optional_rerank(candidates: list[CandidateDeck]) -> list[CandidateDeck]:
@@ -328,6 +399,9 @@ def _select_score_band_candidates(
                     band_min_score=_candidate_selection_score(bucket[0]),
                     band_max_score=_candidate_selection_score(bucket[-1]),
                     diagnostics=candidate.diagnostics,
+                    preset_lane=candidate.preset_lane,
+                    theme_tags=candidate.theme_tags,
+                    theme_boost=candidate.theme_boost,
                     pre_rerank_selection_score=candidate.pre_rerank_selection_score,
                     rerank_matches_played=candidate.rerank_matches_played,
                     rerank_wins=candidate.rerank_wins,
@@ -350,7 +424,10 @@ def _build_candidate_pool(
     candidate_pool_size: int,
     forge_calibrator: EmpiricalForgeCalibrator | None = None,
     forge_outcome_model: ForgeOutcomeModel | None = None,
+    preset_lane: str | None = None,
+    theme_tags: str | tuple[str, ...] | list[str] | None = None,
 ) -> list[CandidateDeck]:
+    resolved_preset_lane, resolved_theme_tags = _theme_tags_for_preset(preset_lane, theme_tags)
     candidates: list[CandidateDeck] = []
     seen_decks: set[tuple[str, ...]] = set()
     for offset in range(candidate_pool_size):
@@ -377,6 +454,8 @@ def _build_candidate_pool(
             selection_score = forge_calibrator.predict(structural_selection_score)
         else:
             selection_score = structural_selection_score
+        theme_boost = _theme_match_boost(deck_ids, resolved_theme_tags)
+        selection_score = min(1.0, selection_score + theme_boost)
         candidates.append(
             CandidateDeck(
                 seed=seed,
@@ -385,6 +464,9 @@ def _build_candidate_pool(
                 selection_score=selection_score,
                 structure_penalty=structure_penalty,
                 diagnostics=diagnostics,
+                preset_lane=resolved_preset_lane,
+                theme_tags=resolved_theme_tags,
+                theme_boost=theme_boost,
             )
         )
         print(
@@ -508,6 +590,9 @@ def _simulation_rerank_candidates(
                 "predicted_win_rate": candidate.predicted_win_rate,
                 "model_selection_score": prior_score,
                 "structure_penalty": candidate.structure_penalty,
+                "preset_lane": candidate.preset_lane,
+                "theme_tags": "|".join(candidate.theme_tags),
+                "theme_boost": candidate.theme_boost,
                 "rerank_matches_requested": matches,
                 "rerank_matches_played": matches_played,
                 "rerank_wins": wins,
@@ -559,6 +644,9 @@ def _write_score_band_manifest(
                 "predicted_win_rate",
                 "selection_score",
                 "structure_penalty",
+                "preset_lane",
+                "theme_tags",
+                "theme_boost",
                 "pre_rerank_selection_score",
                 "rerank_matches_played",
                 "rerank_wins",
@@ -590,6 +678,9 @@ def _write_sim_rerank_manifest(
                 "predicted_win_rate",
                 "model_selection_score",
                 "structure_penalty",
+                "preset_lane",
+                "theme_tags",
+                "theme_boost",
                 "rerank_matches_requested",
                 "rerank_matches_played",
                 "rerank_wins",
@@ -841,6 +932,8 @@ def run_score_band_experiment(
     rerank_shortlist_size: int = 0,
     rerank_matches: int = 0,
     rerank_prior_weight: float = 20.0,
+    preset_lane: str | None = None,
+    theme_tags: str | tuple[str, ...] | list[str] | None = None,
 ) -> ExperimentOutcome:
     """Run calibration by sampling generated decks across surrogate score bands."""
     if n_decks <= 0:
@@ -902,6 +995,8 @@ def run_score_band_experiment(
                 candidate_pool_size=candidate_pool_size,
                 forge_calibrator=forge_calibrator,
                 forge_outcome_model=forge_outcome_model,
+                preset_lane=preset_lane,
+                theme_tags=theme_tags,
             )
             rerank_outcome = _simulation_rerank_candidates(
                 candidates=candidates,
@@ -952,6 +1047,9 @@ def run_score_band_experiment(
                         "predicted_win_rate": selected.predicted_win_rate,
                         "selection_score": selected.selection_score,
                         "structure_penalty": selected.structure_penalty,
+                        "preset_lane": selected.preset_lane,
+                        "theme_tags": "|".join(selected.theme_tags),
+                        "theme_boost": selected.theme_boost,
                         "pre_rerank_selection_score": (
                             selected.pre_rerank_selection_score
                             if selected.pre_rerank_selection_score is not None
@@ -983,12 +1081,17 @@ def run_score_band_experiment(
                     ecms_seed=selected.seed,
                 )
                 structure_rows.append(
-                    structure_manifest_row(
-                        generated_deck_id=generated_deck_id,
-                        seed=selected.seed,
-                        predicted_win_rate=selected.predicted_win_rate,
-                        diagnostics=diagnostics,
-                    )
+                    {
+                        **structure_manifest_row(
+                            generated_deck_id=generated_deck_id,
+                            seed=selected.seed,
+                            predicted_win_rate=selected.predicted_win_rate,
+                            diagnostics=diagnostics,
+                        ),
+                        "preset_lane": selected.preset_lane,
+                        "theme_tags": "|".join(selected.theme_tags),
+                        "theme_boost": selected.theme_boost,
+                    }
                 )
 
                 sim_result_id = _create_sim_result_row(generated_deck_id, opponent_path.name)

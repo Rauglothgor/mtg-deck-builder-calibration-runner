@@ -81,6 +81,9 @@ def test_write_structure_manifest(tmp_path: Path) -> None:
     ]
     diagnostics = analyze_structure_cards(cards, "Atraxa, Praetors' Voice", ecms_trials=1)
     row = structure_manifest_row(uuid4(), 42, 0.75, diagnostics)
+    row["preset_lane"] = "poison"
+    row["theme_tags"] = "poison|toxic|infect|proliferate"
+    row["theme_boost"] = 0.02
 
     manifest_path = write_structure_manifest(tmp_path / "report.md", [row])
 
@@ -88,6 +91,8 @@ def test_write_structure_manifest(tmp_path: Path) -> None:
     assert manifest_path.name == "report.structure.csv"
     assert "expected_compounded_mana_spent" in text
     assert "predicted_win_rate" in text
+    assert "preset_lane" in text
+    assert "poison|toxic|infect|proliferate" in text
     assert "0.75" in text
 
 

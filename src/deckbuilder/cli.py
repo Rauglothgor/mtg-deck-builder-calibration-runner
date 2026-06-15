@@ -295,6 +295,23 @@ def experiment_run_score_bands_command(
             help="Equivalent prior match count assigned to the model score during reranking.",
         ),
     ] = 20.0,
+    preset_lane: Annotated[
+        str,
+        typer.Option(
+            "--preset-lane",
+            help=(
+                "Optional product preset lane label for validation artifact metadata "
+                "and theme boost."
+            ),
+        ),
+    ] = "",
+    theme_tags: Annotated[
+        str,
+        typer.Option(
+            "--theme-tags",
+            help="Optional comma-separated theme tags for the product lexical boost.",
+        ),
+    ] = "",
 ) -> None:
     """Run calibration with rank-based surrogate score-band sampling."""
     calibrator = load_empirical_calibrator(forge_calibrator) if forge_calibrator else None
@@ -313,6 +330,8 @@ def experiment_run_score_bands_command(
         rerank_shortlist_size=rerank_shortlist_size,
         rerank_matches=rerank_matches,
         rerank_prior_weight=rerank_prior_weight,
+        preset_lane=preset_lane or None,
+        theme_tags=theme_tags or None,
     )
     typer.echo(f"experiment_run_id={outcome.experiment_run_id}")
     typer.echo(f"decision={outcome.calibration.decision}")
